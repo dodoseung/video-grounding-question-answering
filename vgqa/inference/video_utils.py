@@ -15,41 +15,19 @@ IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
 def load_video_reader(video_path: str) -> VideoReader:
-    """Load video using decord VideoReader.
-
-    Args:
-        video_path: Path to video file
-
-    Returns:
-        VideoReader object
-    """
+    """Load video using decord VideoReader."""
     return VideoReader(video_path, ctx=cpu(0), num_threads=1)
 
 
 def get_video_info(vr: VideoReader) -> Tuple[int, float]:
-    """Get video metadata.
-
-    Args:
-        vr: VideoReader object
-
-    Returns:
-        Tuple of (total_frames, fps)
-    """
+    """Get video metadata."""
     total_frames = len(vr)
     fps = float(vr.get_avg_fps()) if hasattr(vr, "get_avg_fps") else 30.0
     return total_frames, fps
 
 
 def uniform_sample_indices(total_frames: int, target_frames: int) -> List[int]:
-    """Uniformly sample frame indices.
-
-    Args:
-        total_frames: Total number of frames in video
-        target_frames: Number of frames to sample
-
-    Returns:
-        List of frame indices
-    """
+    """Uniformly sample frame indices."""
     target_frames = max(1, min(int(target_frames), int(total_frames)))
     if target_frames == total_frames:
         return list(range(total_frames))
@@ -57,15 +35,7 @@ def uniform_sample_indices(total_frames: int, target_frames: int) -> List[int]:
 
 
 def load_frames(vr: VideoReader, indices: List[int]) -> List[np.ndarray]:
-    """Load frames from video at specified indices.
-
-    Args:
-        vr: VideoReader object
-        indices: List of frame indices to load
-
-    Returns:
-        List of numpy arrays (frames)
-    """
+    """Load frames from video at specified indices."""
     try:
         batch = vr.get_batch(indices).asnumpy()
         return [batch[i] for i in range(batch.shape[0])]
@@ -76,16 +46,7 @@ def load_frames(vr: VideoReader, indices: List[int]) -> List[np.ndarray]:
 def build_transform(input_size: int = 448,
                     mean: Tuple[float, float, float] = IMAGENET_MEAN,
                     std: Tuple[float, float, float] = IMAGENET_STD) -> T.Compose:
-    """Build image transformation pipeline.
-
-    Args:
-        input_size: Target image size
-        mean: Normalization mean
-        std: Normalization std
-
-    Returns:
-        Composition of transforms
-    """
+    """Build image transformation pipeline."""
     return T.Compose([
         T.Lambda(lambda img: img.convert("RGB") if img.mode != "RGB" else img),
         T.Resize((input_size, input_size), interpolation=InterpolationMode.BICUBIC),
@@ -100,17 +61,7 @@ def get_frame_indices_with_bound(
     max_frame: int,
     num_segments: int = 32
 ) -> np.ndarray:
-    """Get frame indices based on temporal bounds.
-
-    Args:
-        bound: Optional tuple of (start_time, end_time) in seconds
-        fps: Video frames per second
-        max_frame: Maximum frame index
-        num_segments: Number of segments to sample
-
-    Returns:
-        Array of frame indices
-    """
+    """Get frame indices based on temporal bounds."""
     if bound:
         start, end = bound[0], bound[1]
     else:

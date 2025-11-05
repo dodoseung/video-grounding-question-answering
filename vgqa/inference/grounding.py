@@ -49,8 +49,6 @@ def _bind_local_model_zoo(cfg):
         if hasattr(vidswin_cfg, 'PRETRAINED'):
             # PRETRAINED can be either a key or a path
             pretrained = vidswin_cfg.PRETRAINED
-            # If it's a known key like "video_swin_t_p4w7_k400_1k", the vidswin_model will handle it
-            # We don't need to modify it here
             pass
     # Handle both TEXT_ENCODER and TEXT_MODEL naming conventions
     if hasattr(cfg, 'MODEL'):
@@ -149,22 +147,7 @@ def predict(
     device_str: Optional[str] = None,
     batch_size: int = 32,
 ) -> Dict[str, Any]:
-    """Run spatio-temporal video grounding inference.
-
-    Args:
-        video_path: Path to the video file
-        query: Text query for grounding
-        cfg_path: Path to config YAML file
-        ckpt_path: Path to checkpoint file
-        device_str: Device string (e.g., "cuda", "cpu")
-        batch_size: Batch size (unused, kept for compatibility)
-
-    Returns:
-        Dictionary with "temporal" and "tube" keys containing predictions
-
-    Raises:
-        FileNotFoundError: If video, config, or checkpoint not found
-    """
+    """Run spatio-temporal video grounding inference."""
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video not found: {video_path}")
 

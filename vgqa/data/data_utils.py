@@ -141,13 +141,7 @@ def make_vidstg_input_clip(cfg, split, video_data):
 
 
 def crop_clip(cfg, video_data):
-    """
-    Usage:
-        random crop a video clip while preserve its groundtruth
-    Args:
-        cfg: config file
-        video_data : a groundtruth data item (Down FPS sampled)
-    """
+    """Random crop a video clip while preserve its groundtruth"""
     p = random.random()
     if p < 1 - cfg.INPUT.TEMP_CROP_PROB:
         return video_data
@@ -223,13 +217,7 @@ def make_2dmap(cfg, video_data):
 
 
 def sample_clip(cfg, video_data):
-    """
-    Usage:
-        sample a samll video clip and its groundtruth
-    Args:
-        cfg: config file
-        video_data : a groundtruth data item (Down FPS sampled) 
-    """
+    """Sample a samll video clip and its groundtruth"""
     data_item = {
         'gt_file' : video_data['gt_file'],
         'width' : video_data['width'],
@@ -270,13 +258,7 @@ def sample_clip(cfg, video_data):
     
 
 def make_heatmap(cfg,input_dict):
-    """
-    Usage:
-        Generate the Gaussion hetmap for the bounding box
-    Args:
-        cfg: config file
-        input_dict : images and its bounding box 
-    """
+    """Generate the Gaussion hetmap for the bounding box"""
     video_clip = input_dict['frames']
     bboxs = input_dict['boxs'].bbox
     gt_mask = input_dict['actioness']
@@ -392,7 +374,6 @@ def convert_examples_to_features(examples, seq_length, tokenizer):
         input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
         # The mask has 1 for real tokens and 0 for padding tokens. Only real
-        # tokens are attended to.
         input_mask = [1] * len(input_ids)
 
         # Zero-pad up to the sequence length.
@@ -418,10 +399,6 @@ def make_word_tokens(cfg,sentence,index,vocab=None):
     max_query_len = cfg.INPUT.MAX_QUERY_LEN
 
     if cfg.MODEL.USE_LSTM:
-        # words = SENTENCE_SPLIT_REGEX.split(sentence.strip())
-        # words = [w.lower() for w in words if (len(w) > 0 and w!=' ')]   ## do not include space as a token
-        # if words[-1] == '.' or words[-1] == '?' or words[-1] == '!':
-        #     words = words[:-1]
         words = sentence.strip().split()
         word_idx = torch.tensor([vocab.stoi.get(w.lower(), 400000) for w in words], dtype=torch.long)
         padded_word_idx = torch.zeros(max_query_len,dtype=torch.long)

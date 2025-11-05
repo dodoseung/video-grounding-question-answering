@@ -9,10 +9,6 @@ def align_and_update_state_dicts(model_state_dict, loaded_state_dict, load_mappi
     """Align and update model state dict with loaded weights using suffix matching"""
     current_keys = sorted(list(model_state_dict.keys()))
     loaded_keys = sorted(list(loaded_state_dict.keys()))
-    # get a matrix of string matches, where each (i, j) entry correspond to the size of the
-    # loaded_key string, if it matches
-    # NOTE: Kaihua Tang, since some modules of current model will be initialized from assigned layer of 
-    # loaded model, we use load_mapping to do such operation
     mapped_current_keys = current_keys.copy()
     for i, key in enumerate(mapped_current_keys):
         for source_key, target_key in load_mapping.items():
@@ -73,9 +69,6 @@ def strip_prefix_if_present(state_dict, prefix):
 def load_state_dict(model, loaded_state_dict, load_mapping, logger):
     """Load state dict into model with alignment and mapping"""
     model_state_dict = model.state_dict()
-    # if the state_dict comes from a model that was wrapped in a
-    # DataParallel or DistributedDataParallel during serialization,
-    # remove the "module" prefix before performing the matching
     loaded_state_dict = strip_prefix_if_present(loaded_state_dict, prefix="module.")
     align_and_update_state_dicts(model_state_dict, loaded_state_dict, load_mapping, logger)
     # use strict loading

@@ -123,8 +123,6 @@ class WarmupReduceLROnPlateau(object):
         self.under_cooldown = self.cooldown
         self.logger = logger
 
-        # The following code is copied from Pytorch=1.2.0
-        # https://pytorch.org/docs/stable/_modules/torch/optim/lr_scheduler.html
         if not isinstance(optimizer, Optimizer):
             raise TypeError('{} is not an Optimizer'.format(
                 type(optimizer).__name__))

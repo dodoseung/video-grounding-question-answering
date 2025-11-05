@@ -21,7 +21,8 @@ pip install -r requirements.txt
 
 # VidSTG Dataset
 # Download VidSTG dataset (Place the dataset in data/vidstg/)
-# Download from: https://disk.pku.edu.cn/link/AA93DEAF3BBC694E52ACC5A23A9DC3D03B
+# Download annotations from: https://huggingface.co/Gstar666/TASTVG/resolve/main/data.tar
+# Download videos from: https://disk.pku.edu.cn/link/AA93DEAF3BBC694E52ACC5A23A9DC3D03B
 
 # Pretrained models
 # Download InternVideo2.5-Chat-8B for QA (Place the model files in checkpoints/qa/InternVideo2_5_Chat_8B/)

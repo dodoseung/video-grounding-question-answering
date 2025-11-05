@@ -52,7 +52,6 @@ def clean_anno(data):
                 words[widx] = replace_dict[word]
         data[idx]['description'] = ' '.join(words)
         max_len = max(max_len,len(words))
-    # print(max_len)
     return data
 
 
@@ -148,11 +147,7 @@ class VidSTGDataset(data.Dataset):
         return frames
 
     def __getitem__(self, index: int):
-        """
-        Usage:
-            In training, sample a random clip from video
-            In testing, chunk the video to a set of clips
-        """
+        """In training, sample a random clip from video, in testing, chunk the video to a set of clips"""
         video_data = deepcopy(self.all_gt_data[index]) 
 
         data_item = make_vidstg_input_clip(self.cfg, self.split, video_data)
@@ -205,9 +200,7 @@ class VidSTGDataset(data.Dataset):
         return len(self.all_gt_data)
 
     def load_data(self):
-        """
-        Prepare the Input Data Cache and the evaluation data groundtruth
-        """
+        """Prepare the Input Data Cache and the evaluation data groundtruth"""
         
         cache_dir = os.path.join(self.data_dir,'data_cache')
         if not os.path.exists(cache_dir):
@@ -321,12 +314,7 @@ class VidSTGDataset(data.Dataset):
         return gt_data
 
     def make_data_pairs(self,anno_file):
-        """
-        Args:
-            anno_file: the origin vid-stg annos
-        Usage:
-            merge temporal gt and spatial gt
-        """
+        """Merge temporal gt and spatial gt"""
         pair_cnt = 0
         spoiled = set()
         print(f"Prepare {self.split} Data")

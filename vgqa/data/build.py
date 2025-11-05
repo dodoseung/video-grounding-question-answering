@@ -148,9 +148,6 @@ def make_data_loader(cfg, mode='train', is_distributed=False, start_iter=0):
         num_iters = None
         start_iter = 0
 
-    # group videos which have similar aspect ratio. In this case, we only
-    # group in two cases: those with width / height > 1, and the other way around,
-    # but the code supports more general grouping strategy
     aspect_grouping = [1] if cfg.DATALOADER.ASPECT_RATIO_GROUPING else []
 
     sampler = make_data_sampler(dataset, shuffle, is_distributed)

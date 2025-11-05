@@ -217,17 +217,3 @@ mkdir -p data/vidstg/{videos,annos,data_cache}
 # data/vidstg/videos/     - 비디오 파일
 # data/vidstg/annos/      - train.json, test.json
 ```
-
-## Dependencies
-
-주요 패키지 ([requirements.txt](requirements.txt)):
-- PyTorch 1.9+
-- transformers 4.37.2
-- decord 0.6.0
-- opencv-python 4.10.0.84
-- yacs, einops, timm
-- FastAPI, uvicorn
-
-## Contact
-
-seungwon.do@etri.re.kr

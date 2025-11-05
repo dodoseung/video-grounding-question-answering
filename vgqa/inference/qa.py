@@ -127,12 +127,7 @@ def _load_video(
     max_num: int = 1,
     num_segments: int = 32
 ) -> Tuple[torch.Tensor, List[int]]:
-    """Load and preprocess video for InternVideo2.5.
-
-    Returns:
-        pixel_values: Concatenated tensor of all frame patches
-        num_patches_list: List of number of patches per frame
-    """
+    """Load and preprocess video for InternVideo2.5."""
     vr = load_video_reader(video_path)
     total_frames, fps = get_video_info(vr)
     max_frame = total_frames - 1
@@ -159,17 +154,7 @@ def _load_video(
 
 
 def _load_offline_model(model_dir: str = DEFAULT_MODEL_DIR):
-    """Load InternVideo2.5-Chat-8B model from local directory.
-
-    Args:
-        model_dir: Path to the local model directory
-
-    Returns:
-        Tuple of (model, tokenizer)
-
-    Raises:
-        FileNotFoundError: If the model directory doesn't exist
-    """
+    """Load InternVideo2.5-Chat-8B model from local directory."""
     if not os.path.exists(model_dir):
         raise FileNotFoundError(
             f"InternVideo2.5-Chat-8B local directory not found: {model_dir}"
@@ -216,26 +201,7 @@ def predict(
     input_size: int = 448,
     max_num: int = 1,
 ) -> Dict[str, Any]:
-    """Run InternVideo2.5-Chat-8B offline QA.
-
-    Args:
-        video_path: Path to the video file
-        question: Question to ask about the video
-        bound: Optional temporal bounds (start_time, end_time) in seconds
-        model_dir: Path to the model directory
-        num_frames: Number of frames to sample from video
-        max_new_tokens: Maximum number of tokens to generate
-        temperature: Sampling temperature
-        top_p: Nucleus sampling parameter
-        input_size: Input image size (default 448)
-        max_num: Maximum number of image patches per frame (default 1)
-
-    Returns:
-        Dictionary with "answer" key containing the model's response
-
-    Raises:
-        FileNotFoundError: If video or model directory doesn't exist
-    """
+    """Run InternVideo2.5-Chat-8B offline QA."""
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video not found: {video_path}")
 

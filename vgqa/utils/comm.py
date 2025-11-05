@@ -71,8 +71,6 @@ def all_gather(data):
     max_size = max(size_list)
 
     # receiving Tensor from all ranks
-    # we pad the tensor because torch all_gather does not support
-    # gathering tensors of different shapes
     tensor_list = []
     for _ in size_list:
         tensor_list.append(torch.ByteTensor(size=(max_size,)).to(to_device))
