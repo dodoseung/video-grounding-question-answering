@@ -8,6 +8,7 @@ from .comm import is_main_process
 
 
 def mkdir(path):
+    """Create directory if it doesn't exist"""
     try:
         os.makedirs(path)
     except OSError as e:
@@ -16,6 +17,7 @@ def mkdir(path):
 
 
 def set_seed(seed):
+    """Set random seed for reproducibility"""
     print("set seed ",seed)
     random.seed(seed)
     np.random.seed(seed)
@@ -24,12 +26,14 @@ def set_seed(seed):
 
 
 def save_config(cfg, path):
+    """Save configuration to file"""
     if is_main_process():
         with open(path, 'w') as f:
             f.write(cfg.dump())
 
 
 def to_device(targets, device):
+    """Move target tensors to specified device"""
     transfer_keys = set(['actioness', 'start_heatmap', 'end_heatmap', 'boxs', 'iou_map', 'candidates'])
     for idx in range(len(targets)):
         for key in targets[idx].keys():
@@ -39,21 +43,24 @@ def to_device(targets, device):
 
 
 class NestedTensor(object):
+    """Container for video tensors with variable lengths and masks"""
     def __init__(self, tensors, mask, durations):
         self.tensors = tensors
         self.mask = mask
         self.durations = durations
 
     def to(self, *args, **kwargs):
+        """Move nested tensor to device"""
         cast_tensor = self.tensors.to(*args, **kwargs)
         cast_mask = self.mask.to(*args, **kwargs) if self.mask is not None else None
         return type(self)(cast_tensor, cast_mask, self.durations)
 
     def decompose(self):
+        """Decompose into tensors, mask, and durations"""
         return self.tensors, self.mask, self.durations
 
     def subsample(self, stride, start_idx=0):
-        # Subsample the video for multi-modal Interaction
+        """Subsample video frames for multi-scale processing"""
         sampled_tensors = [video[start_idx::stride] for video in \
                             torch.split(self.tensors, self.durations, dim=0)]
         sampled_mask = [mask[start_idx::stride] for mask in \

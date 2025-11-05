@@ -7,12 +7,14 @@ import torchtext
 
 
 class RNNEncoder(nn.Module):
+    """RNN-based text encoder with GloVe embeddings"""
     def __init__(self, vocab_dir, hidden_size, bidirectional=False,
                dropout_p=0, n_layers=1, rnn_type='lstm'):
         super(RNNEncoder, self).__init__()
 
+        # Load pretrained GloVe embeddings
         vocab = load_vocab(vocab_dir)
-        self.embedding = nn.Embedding.from_pretrained(vocab.vectors,freeze=True)  # Froezen the embedding weight
+        self.embedding = nn.Embedding.from_pretrained(vocab.vectors,freeze=True)  # Frozen embedding weights
         word_embed_size = vocab.vectors.shape[1]
     
         self.rnn_type = rnn_type
@@ -24,47 +26,44 @@ class RNNEncoder(nn.Module):
         self.variable_lengths = True
 
     def forward(self, text_data):
-        """
-        Inputs:
-        - input word_idx (batch, seq_len)
-        Outputs:
-        - output  : Variable float (batch, max_len, hidden_size * num_dirs)
-        - hidden  : Variable float (batch, num_layers * num_dirs * hidden_size)
-        - embedded: Variable float (batch, max_len, word_vec_size)
-        """
+        """Encode text through RNN and return final hidden states"""
         text_tensors = text_data.tensors
         text_masks = text_data.mask
-        
-        input_lengths = (text_masks != 0).sum(1)  # Variable (batch, )
+
+        # Get actual lengths of sequences
+        input_lengths = (text_masks != 0).sum(1)
         input_lengths_list = input_lengths.data.cpu().numpy().tolist()
 
-        sorted_input_lengths_list = np.sort(input_lengths_list)[::-1].tolist() # list of sorted input_lengths
-        sort_ixs = np.argsort(input_lengths_list)[::-1].tolist() # list of int sort_ixs, descending
-        s2r = {s: r for r, s in enumerate(sort_ixs)} # O(n)
-        recover_ixs = [s2r[s] for s in range(len(input_lengths_list))]  # list of int recover ixs
+        # Sort sequences by length in descending order for pack_padded_sequence
+        sorted_input_lengths_list = np.sort(input_lengths_list)[::-1].tolist()
+        sort_ixs = np.argsort(input_lengths_list)[::-1].tolist()
+        s2r = {s: r for r, s in enumerate(sort_ixs)}
+        recover_ixs = [s2r[s] for s in range(len(input_lengths_list))]
 
-        # move to long tensor
-        sort_ixs = text_masks.data.new(sort_ixs).long()  # Variable long
-        recover_ixs = text_masks.data.new(recover_ixs).long()  # Variable long
+        # Convert to tensor indices
+        sort_ixs = text_masks.data.new(sort_ixs).long()
+        recover_ixs = text_masks.data.new(recover_ixs).long()
 
-        # sort input_labels by descending order
+        # Sort inputs by descending length
         text_tensors = text_tensors[sort_ixs]
         text_masks = text_masks[sort_ixs]
 
-        # embed
-        embedded = self.embedding(text_tensors)  # (n, seq_len, word_embedding_size)
+        # Embed and pack sequences
+        embedded = self.embedding(text_tensors)
         embedded = nn.utils.rnn.pack_padded_sequence(embedded, sorted_input_lengths_list, batch_first=True)
-        # forward rnn
+
+        # Forward through RNN
         output, hidden = self.rnn(embedded)
-       
-        # recover embedded
+
+        # Recover embedded sequences
         embedded, _ = nn.utils.rnn.pad_packed_sequence(embedded, batch_first=True)
         embedded = embedded[recover_ixs]
 
-        # recover rnn
-        output, _ = nn.utils.rnn.pad_packed_sequence(output, batch_first=True) # (batch, max_len, hidden)
+        # Recover RNN outputs to original order
+        output, _ = nn.utils.rnn.pad_packed_sequence(output, batch_first=True)
         output = output[recover_ixs]
 
+        # Extract final hidden state for each sequence
         sent_output = []
         for ii in range(output.shape[0]):
             sent_output.append(output[ii,int(input_lengths_list[ii]-1),:])
@@ -72,9 +71,12 @@ class RNNEncoder(nn.Module):
 
 
 def load_vocab(vocab_dir):
+    """Load or download GloVe vocabulary and embeddings"""
     vocab_pth = os.path.join(vocab_dir,'vocab.pth')
     if not os.path.exists(vocab_pth):
+        # Download GloVe 300d embeddings
         vocab = torchtext.vocab.pretrained_aliases["glove.6B.300d"](cache=vocab_dir)
+        # Add unknown token
         vocab.itos.extend(['<unk>'])
         vocab.stoi['<unk>'] = vocab.vectors.shape[0]
         vocab.vectors = torch.cat([vocab.vectors, torch.zeros(1, vocab.dim)], dim=0)

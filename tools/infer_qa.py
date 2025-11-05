@@ -16,6 +16,7 @@ from vgqa.inference import qa
 
 def main() -> None:
     """Main entry point for CLI usage."""
+    # Parse command line arguments
     parser = argparse.ArgumentParser(
         description="Run video question answering inference with InternVideo2.5-Chat-8B",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -34,12 +35,13 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Parse temporal bounds
+    # Parse temporal bounds if provided
     bound = None
     if args.bound_start is not None and args.bound_end is not None:
         bound = (float(args.bound_start), float(args.bound_end))
 
     try:
+        # Run QA inference
         result = qa.predict(
             video_path=args.video,
             question=args.question,
@@ -52,8 +54,10 @@ def main() -> None:
             input_size=args.input_size,
             max_num=args.max_num,
         )
+        # Print result as JSON
         print(json.dumps(result, ensure_ascii=False, indent=2))
     except Exception as e:
+        # Handle errors and print detailed traceback
         import traceback
         error_details = traceback.format_exc()
         print(json.dumps({"error": str(e), "traceback": error_details}, ensure_ascii=False), file=sys.stderr)

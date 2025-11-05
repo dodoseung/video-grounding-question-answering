@@ -1,6 +1,7 @@
 from .vidstg_eval import VidSTGEvaluator
 
 def build_evaluator(cfg, logger, mode):
+    """Build evaluator for VidSTG dataset"""
     return VidSTGEvaluator(
         logger,
         cfg.DATA_DIR,

@@ -1,12 +1,8 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 from torch.utils.data.sampler import BatchSampler
 
 
 class IterationBasedBatchSampler(BatchSampler):
-    """
-    Wraps a BatchSampler, resampling from it until
-    a specified number of iterations have been sampled
-    """
+    """Batch sampler that resamples until specified number of iterations"""
 
     def __init__(self, batch_sampler, num_iterations, start_iter=0):
         self.batch_sampler = batch_sampler

@@ -3,15 +3,7 @@ from .scheduler import WarmupMultiStepLR, WarmupReduceLROnPlateau, WarmupPolyLR
 
 
 def update_ema(model, model_ema, decay):
-    """Apply exponential moving average update.
-
-    The  weights are updated in-place as follow:
-    w_ema = w_ema * decay + (1 - decay) * w
-    Args:
-        model: active model that is being optimized
-        model_ema: running average model
-        decay: exponential decay parameter
-    """
+    """Apply exponential moving average update to model weights"""
     with torch.no_grad():
         if hasattr(model, "module"):
             # unwrapping DDP
@@ -23,6 +15,8 @@ def update_ema(model, model_ema, decay):
 
 
 def make_optimizer(cfg, model, logger):
+    """Create optimizer with different learning rates for different modules"""
+    # Group parameters by module type
     vis_enc_param = [p for n, p in model.named_parameters() \
                             if (("vis_encoder" in n) and p.requires_grad)]
     text_enc_param = [p for n, p in model.named_parameters() \
@@ -34,19 +28,21 @@ def make_optimizer(cfg, model, logger):
     rest_param = [p for n, p in model.named_parameters() if (('vis_encoder' not in n) and ('_clas' not in n) and \
                 ('text_encoder' not in n) and ("ground_decoder.time_decoder" not in n) and p.requires_grad)]
 
+    # Get optimizer hyperparameters
     base_lr = cfg.SOLVER.BASE_LR
     optim_type = cfg.SOLVER.OPTIMIZER
     weight_decay = cfg.SOLVER.WEIGHT_DECAY
 
+    # Set different learning rates for different modules
     param_list = [
         {"params" : rest_param},
         {"params" : vis_enc_param, "lr" : cfg.SOLVER.VIS_BACKBONE_LR},
-        {"params" : text_enc_param, "lr" : cfg.SOLVER.TEXT_LR},  
+        {"params" : text_enc_param, "lr" : cfg.SOLVER.TEXT_LR},
         {"params" : temp_dec_param, "lr" : cfg.SOLVER.TEMP_LR},
         {"params": verb_class_param, "lr": cfg.SOLVER.VERB_LR},
     ]
 
-    # using RMSProp or AdamW
+    # Create optimizer based on specified type
     if optim_type == 'rmsprop':
         optimizer = torch.optim.RMSprop(param_list, lr=base_lr, weight_decay=weight_decay)
     elif optim_type == 'adamw':
@@ -62,6 +58,7 @@ def make_optimizer(cfg, model, logger):
 
 
 def make_lr_scheduler(cfg, optimizer, logger=None):
+    """Create learning rate scheduler based on configuration"""
     if cfg.SOLVER.SCHEDULE.TYPE == "WarmupMultiStepLR":
         return WarmupMultiStepLR(
             optimizer,

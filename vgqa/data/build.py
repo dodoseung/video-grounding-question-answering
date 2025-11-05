@@ -17,6 +17,7 @@ from .collate_batch import collate_fn
 
 
 def build_transforms(cfg, is_train=True):
+    """Build image transformation pipeline for training or evaluation"""
     imsize = cfg.INPUT.RESOLUTION
     max_size = 720
     if is_train:
@@ -64,10 +65,12 @@ def build_transforms(cfg, is_train=True):
 
 
 def build_dataset(cfg, split, transforms):
+    """Build VidSTG dataset for given split"""
     return VidSTGDataset(cfg, split, transforms)
 
 
 def make_data_sampler(dataset, shuffle, distributed):
+    """Create data sampler for distributed or single-process training"""
     if distributed:
         return DistributedSampler(dataset, shuffle=shuffle)
     if shuffle:

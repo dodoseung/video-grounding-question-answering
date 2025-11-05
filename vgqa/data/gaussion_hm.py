@@ -2,6 +2,7 @@ import numpy as np
 
 
 def gaussian_radius(det_size, min_overlap=0.7):
+    """Compute gaussian radius for heatmap generation based on detection size"""
     height, width = det_size
 
     a1 = 1
@@ -25,6 +26,7 @@ def gaussian_radius(det_size, min_overlap=0.7):
 
 
 def gaussian2D(shape, sigma=1):
+    """Generate 2D gaussian kernel"""
     m, n = [(ss - 1.) / 2. for ss in shape]
     y, x = np.ogrid[-m:m + 1, -n:n + 1]
 
@@ -34,6 +36,7 @@ def gaussian2D(shape, sigma=1):
 
 
 def draw_umich_gaussian(heatmap, center, radius, k=1):
+    """Draw gaussian blob on heatmap at specified center"""
     diameter = 2 * radius + 1
     gaussian = gaussian2D((diameter, diameter), sigma=diameter / 6)
 
@@ -52,6 +55,7 @@ def draw_umich_gaussian(heatmap, center, radius, k=1):
 
 
 def draw_msra_gaussian(heatmap, center, sigma):
+    """Draw MSRA-style gaussian blob on heatmap"""
     tmp_size = sigma * 3
     mu_x = int(center[0] + 0.5)
     mu_y = int(center[1] + 0.5)

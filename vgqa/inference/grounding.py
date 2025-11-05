@@ -16,7 +16,7 @@ from .video_utils import load_video_reader, get_video_info, uniform_sample_indic
 
 # Default paths
 DEFAULT_CONFIG_PATH = "configs/grounding_vidstg.yaml"
-DEFAULT_CHECKPOINT_PATH = "checkpoints/grounding/tastvg_vidstg.pth"
+DEFAULT_CHECKPOINT_PATH = "checkpoints/grounding/vidstg.pth"
 
 
 def _load_yaml_config(config_path: str):
@@ -43,6 +43,15 @@ def _bind_local_model_zoo(cfg):
             elif vision_cfg.NAME == 'swin_tiny' and hasattr(vision_cfg, 'PRETRAINED_PATH'):
                 if not vision_cfg.PRETRAINED_PATH:
                     vision_cfg.PRETRAINED_PATH = os.path.join(model_zoo_dir, "swin_tiny_patch4_window7_224.pth")
+    # Handle Video Swin configuration
+    if hasattr(cfg, 'MODEL') and hasattr(cfg.MODEL, 'VIDEO_SWIN'):
+        vidswin_cfg = cfg.MODEL.VIDEO_SWIN
+        if hasattr(vidswin_cfg, 'PRETRAINED'):
+            # PRETRAINED can be either a key or a path
+            pretrained = vidswin_cfg.PRETRAINED
+            # If it's a known key like "video_swin_t_p4w7_k400_1k", the vidswin_model will handle it
+            # We don't need to modify it here
+            pass
     # Handle both TEXT_ENCODER and TEXT_MODEL naming conventions
     if hasattr(cfg, 'MODEL'):
         if hasattr(cfg.MODEL, 'TEXT_ENCODER'):

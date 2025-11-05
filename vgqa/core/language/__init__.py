@@ -3,6 +3,7 @@ from .bert import BERT, Roberta
 from .lstm import RNNEncoder
 
 def build_text_encoder(cfg):
+    """Build text encoder with RoBERTa or LSTM"""
     if cfg.MODEL.USE_LSTM:
         language_encoder = RNNEncoder(
             cfg.GLOVE_DIR,
@@ -16,7 +17,7 @@ def build_text_encoder(cfg):
     else:
         language_encoder = Roberta(
             cfg.MODEL.TEXT_MODEL.NAME,
-            cfg.MODEL.TASTVG.HIDDEN,
+            cfg.MODEL.VSTG.HIDDEN,
             cfg.MODEL.TEXT_MODEL.FREEZE
         )
     return language_encoder

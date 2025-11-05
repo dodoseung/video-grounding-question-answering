@@ -7,6 +7,7 @@ from torch import Tensor, nn
 
 
 class Gen2DMap(nn.Module):
+    """Generate 2D temporal map for video grounding"""
     def __init__(self, cfg):
         super().__init__()        
         N = cfg.MODEL.TEMPFORMER.MAX_MAP_SIZE

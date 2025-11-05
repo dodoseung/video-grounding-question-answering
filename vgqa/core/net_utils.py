@@ -26,10 +26,8 @@ class MLP(nn.Module):
         return x
     
 
-def gen_sineembed_for_position(pos_tensor): 
-    """
-    pos_tensor : [num_queries, batch_size, 4]
-    """
+def gen_sineembed_for_position(pos_tensor):
+    """Generate sinusoidal position embeddings for bounding boxes"""
     scale = 2 * math.pi
     dim_t = torch.arange(128, dtype=torch.float32, device=pos_tensor.device)
     dim_t = 10000 ** (2 * torch.div(dim_t, 2, rounding_mode='floor') / 128)

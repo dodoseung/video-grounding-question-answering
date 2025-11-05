@@ -1,6 +1,7 @@
-# Add path
+# Evaluation script for spatio-temporal video grounding model
 import sys
 from pathlib import Path
+
 # Add project root to Python path
 project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
@@ -23,7 +24,7 @@ from vgqa.training import do_eval
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Spatio-Temporal Grounding Training")
+    parser = argparse.ArgumentParser(description="Spatio-Temporal Grounding Evaluation")
     parser.add_argument(
         "--config-file",
         default="experiments/vidstg.yaml",
@@ -50,6 +51,7 @@ def main():
     num_gpus = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
     args.distributed = num_gpus > 1
 
+    # Setup distributed training
     if args.distributed:
         torch.cuda.set_device(args.local_rank)
         torch.distributed.init_process_group(
@@ -57,17 +59,20 @@ def main():
         )
         synchronize()
 
+    # Load and merge configuration
     if args.config_file:
         cfg.merge_from_file(args.config_file)
-        
+
     cfg.merge_from_list(args.opts)
     cfg.freeze()
 
+    # Set random seed for reproducibility
     if args.use_seed:
         cudnn.benchmark = False
         cudnn.deterministic = True
         set_seed(args.seed + get_rank())
 
+    # Setup output directory and logger
     output_dir = cfg.OUTPUT_DIR
     if output_dir:
         mkdir(output_dir)
@@ -76,30 +81,33 @@ def main():
     logger.info("Using {} GPUs".format(num_gpus))
     logger.info(cfg)
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
-    
+
+    # Build model and load checkpoint
     model, _, _ = build_model(cfg)
     device = torch.device(cfg.MODEL.DEVICE)
     model.to(device)
-    
+
     checkpointer = VSTGCheckpointer(cfg, model, logger=logger, is_train=False)
     # Use WEIGHT_EVAL for evaluation if available, otherwise fallback to WEIGHT
     eval_weight = cfg.MODEL.WEIGHT_EVAL if hasattr(cfg.MODEL, 'WEIGHT_EVAL') and cfg.MODEL.WEIGHT_EVAL else cfg.MODEL.WEIGHT
     _ = checkpointer.load(eval_weight, with_optim=False)
-    
-    # Prepare the dataset cache
+
+    # Prepare dataset cache on main process
     if args.local_rank == 0:
         _ = build_dataset(cfg, split='test', transforms=None)
-        
+
     synchronize()
-    
+
+    # Create test data loader
     test_data_loader = make_data_loader(
         cfg,
         mode='test',
         is_distributed=args.distributed,
     )
-    
+
+    # Run evaluation
     logger.info("Start Testing")
-    evaluator = build_evaluator(cfg, logger, mode='test')  # mode = ['val','test']
+    evaluator = build_evaluator(cfg, logger, mode='test')
     postprocessor = build_postprocessors()
     do_eval(
         cfg,

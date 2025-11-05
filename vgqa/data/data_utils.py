@@ -13,6 +13,7 @@ SENTENCE_SPLIT_REGEX = re.compile(r'(\W+)')
 
 
 def crop_for_2d_map(cfg, video_data):
+    """Crop video data for 2D temporal map processing"""
     p = random.random()
     if p < 1 - cfg.INPUT.TEMP_CROP_PROB:
         return video_data

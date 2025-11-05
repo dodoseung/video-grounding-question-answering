@@ -9,6 +9,7 @@ from .vidswin.video_swin_transformer import vidswin_model
 import json
 
 def precision_recall(predicted_labels, true_labels):
+    """Calculate precision and recall for label predictions"""
     try:
         predicted_set = set(predicted_labels)
         true_set = set(true_labels)
@@ -29,6 +30,7 @@ def precision_recall(predicted_labels, true_labels):
     return precision, recall
 
 def load_json(file_path):
+    """Load JSON file with error handling for inference mode"""
     try:
         with open(file_path, "r") as f:
             return json.load(f)
@@ -36,22 +38,23 @@ def load_json(file_path):
         print(f"Warning: {file_path} not found, using empty dict for inference mode")
         return {}
 
-class TASTVGNet(nn.Module):
+class VSTGNet(nn.Module):
+    """Video Spatio-Temporal Grounding Network"""
 
     def __init__(self, cfg):
-        super(TASTVGNet, self).__init__()
+        super(VSTGNet, self).__init__()
         self.cfg = cfg.clone()
         self.max_video_len = cfg.INPUT.MAX_VIDEO_LEN
         self.use_attn = cfg.SOLVER.USE_ATTN
-        
+
         self.use_aux_loss = cfg.SOLVER.USE_AUX_LOSS  # use the output of each transformer layer
-        self.use_actioness = cfg.MODEL.TASTVG.USE_ACTION
-        self.query_dim = cfg.MODEL.TASTVG.QUERY_DIM
+        self.use_actioness = cfg.MODEL.VSTG.USE_ACTION
+        self.query_dim = cfg.MODEL.VSTG.QUERY_DIM
 
         self.vis_encoder = build_vis_encoder(cfg)
         vis_fea_dim = self.vis_encoder.num_channels
 
-        hidden_dim = cfg.MODEL.TASTVG.HIDDEN
+        hidden_dim = cfg.MODEL.VSTG.HIDDEN
 
         self.text_encoder = build_text_encoder(cfg)
         self.s_temporal_clas = build_TemporalSampling(hidden_dim)
@@ -65,10 +68,16 @@ class TASTVGNet(nn.Module):
         self.temp_embed = MLP(hidden_dim, hidden_dim, 2, 2, dropout=0.3)
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
 
-        self.vid = vidswin_model("video_swin_t_p4w7", "video_swin_t_p4w7_k400_1k")
-        self.input_proj2 = nn.Conv2d(768, hidden_dim, kernel_size=1)
-        for param in self.vid.parameters():
-            param.requires_grad = False
+        # Build Video Swin model from config
+        self.vid = vidswin_model(
+            cfg.MODEL.VIDEO_SWIN.MODEL_NAME,
+            cfg.MODEL.VIDEO_SWIN.PRETRAINED
+        )
+        self.input_proj2 = nn.Conv2d(cfg.MODEL.VIDEO_SWIN.FEATURE_DIM, hidden_dim, kernel_size=1)
+
+        if cfg.MODEL.VIDEO_SWIN.FREEZE:
+            for param in self.vid.parameters():
+                param.requires_grad = False
 
         self.action_embed = MLP(hidden_dim, hidden_dim, 1, 2, dropout=0.3)
 

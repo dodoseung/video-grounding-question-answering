@@ -1,6 +1,7 @@
-# Add path
+# Training script for spatio-temporal video grounding model
 import sys
 from pathlib import Path
+
 # Add project root to Python path
 project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
@@ -29,16 +30,20 @@ import itertools
 from tqdm import tqdm
 
 
+# Main training function
 def train(cfg, local_rank, distributed, logger):
+    # Build model and loss criterion
     model, criteria, weight_dict = build_model(cfg)
     device = torch.device(cfg.MODEL.DEVICE)
     model.to(device)
     criteria.to(device)
 
+    # Setup optimizer and EMA model
     optimizer = make_optimizer(cfg, model, logger)
     model_ema = deepcopy(model) if cfg.MODEL.EMA else None
     model_without_ddp = model
-    
+
+    # Setup distributed training if enabled
     if distributed:
         model = torch.nn.parallel.DistributedDataParallel(
             model, device_ids=[local_rank], output_device=local_rank,
@@ -46,9 +51,11 @@ def train(cfg, local_rank, distributed, logger):
         )
         model_without_ddp = model.module
     
+    # Initialize training state
     arguments = {}
     arguments["iteration"] = 0
 
+    # Setup checkpoint manager
     output_dir = cfg.OUTPUT_DIR
     save_to_disk = local_rank == 0
     checkpointer = VSTGCheckpointer(
@@ -57,22 +64,24 @@ def train(cfg, local_rank, distributed, logger):
     extra_checkpoint_data = checkpointer.load(cfg.MODEL.WEIGHT)
     arguments.update(extra_checkpoint_data)
     
+    # Define losses to monitor
     verbose_loss = set(["loss_bbox", "loss_giou", "loss_sted", "logits_f_m", "logits_f_a", "logits_r_a", "logits_r_m"])
-    
+
     if cfg.SOLVER.USE_ATTN:
         verbose_loss.add("loss_guided_attn")
-    
-    if cfg.MODEL.TASTVG.USE_ACTION:
+
+    if cfg.MODEL.VSTG.USE_ACTION:
         verbose_loss.add("loss_actioness")
-    
-    # Prepare the dataset cache
+
+    # Prepare dataset cache on main process
     if local_rank == 0:
         split = ['train', 'test']
         for mode in split:
             _ = build_dataset(cfg, split=mode, transforms=None)
-       
+
     synchronize()
 
+    # Create data loaders
     train_data_loader = make_data_loader(
         cfg,
         mode='train',
@@ -85,25 +94,29 @@ def train(cfg, local_rank, distributed, logger):
         is_distributed=distributed,
     )
 
+    # Setup TensorBoard writer
     if cfg.TENSORBOARD_DIR and is_main_process():
+        mkdir(cfg.TENSORBOARD_DIR)
         writer = SummaryWriter(cfg.TENSORBOARD_DIR)
     else:
         writer = None
-    
+
     checkpoint_period = cfg.SOLVER.CHECKPOINT_PERIOD
     logger.info("Start training")
 
+    # Run pre-training validation if enabled
     if cfg.SOLVER.PRE_VAL:
         logger.info("Validating before training")
         run_eval(cfg, model, model_ema, logger, val_data_loader, device)
-    
+
+    # Initialize training metrics
     metric_logger = MetricLogger(delimiter="  ")
     max_iter = len(train_data_loader)
     start_iter = arguments["iteration"]
     start_training_time = time.time()
     end = time.time()
 
-    # Add progress bar with tqdm
+    # Setup progress bar
     if is_main_process():
         import shutil
         term_width = shutil.get_terminal_size().columns
@@ -113,6 +126,7 @@ def train(cfg, local_rank, distributed, logger):
     else:
         pbar = None
 
+    # Training loop
     for iteration, batch_dict in enumerate(train_data_loader, start_iter):
         model.train()
         criteria.train()
@@ -121,20 +135,18 @@ def train(cfg, local_rank, distributed, logger):
         iteration = iteration + 1
         arguments["iteration"] = iteration
 
+        # Move batch to device
         videos = batch_dict['videos'].to(device)
         texts = batch_dict['texts']
         durations = batch_dict['durations']
-        targets = to_device(batch_dict["targets"], device) 
+        targets = to_device(batch_dict["targets"], device)
         targets[0]["durations"] = durations
+
+        # Forward pass
         outputs = model(videos, texts, targets, iteration/max_iter)
 
-        # compute loss
+        # Compute loss
         loss_dict = criteria(outputs, targets, durations)
-        #if iteration > 5000:
-        #    for param in model.module.vclassifier.parameters():
-        #        param.requires_grad = False
-        # loss used for update param
-        # assert set(weight_dict.keys()) == set(loss_dict.keys())
         losses = sum(loss_dict[k] * weight_dict[k] for k in \
                             loss_dict.keys() if k in weight_dict)
 
@@ -171,8 +183,11 @@ def train(cfg, local_rank, distributed, logger):
         eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
 
         if writer is not None and is_main_process() and iteration % 50 == 0:
-            for k in loss_dict_reduced_scaled:
-                writer.add_scalar(f"{k}", metric_logger.meters[k].avg, iteration)
+            try:
+                for k in loss_dict_reduced_scaled:
+                    writer.add_scalar(f"{k}", metric_logger.meters[k].avg, iteration)
+            except Exception as e:
+                logger.warning(f"Failed to write to TensorBoard: {e}")
 
         # Update progress bar
         if pbar is not None:
@@ -220,7 +235,6 @@ def train(cfg, local_rank, distributed, logger):
 
         if cfg.SOLVER.TO_VAL and iteration % cfg.SOLVER.VAL_PERIOD == 0:
             run_eval(cfg, model, model_ema, logger, val_data_loader, device)
-            # run_test(cfg, model, model_ema, logger, distributed)
 
     # Close progress bar
     if pbar is not None:
@@ -234,7 +248,10 @@ def train(cfg, local_rank, distributed, logger):
         )
     )
     if writer is not None:
-        writer.close()
+        try:
+            writer.close()
+        except Exception as e:
+            logger.warning(f"Failed to close TensorBoard writer: {e}")
 
     return model, model_ema
 

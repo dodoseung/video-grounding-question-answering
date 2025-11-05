@@ -9,7 +9,6 @@ timm>=0.9.16
 sentencepiece
 easydict
 huggingface_hub
-
 tqdm
 yacs
 tensorboard
@@ -26,8 +25,6 @@ ipykernel
 jupyter
 notebook
 numpy
-
-
 fastapi
 uvicorn[standard]
 pydantic

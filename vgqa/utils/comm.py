@@ -6,6 +6,7 @@ import torch.distributed as dist
 
 
 def get_world_size():
+    """Get number of processes in distributed training"""
     if not dist.is_available():
         return 1
     if not dist.is_initialized():
@@ -14,6 +15,7 @@ def get_world_size():
 
 
 def get_rank():
+    """Get current process rank in distributed training"""
     if not dist.is_available():
         return 0
     if not dist.is_initialized():
@@ -22,14 +24,12 @@ def get_rank():
 
 
 def is_main_process():
+    """Check if current process is the main process"""
     return get_rank() == 0
 
 
 def is_dist_avail_and_initialized():
-    """
-    Returns:
-        True if distributed training is enabled
-    """
+    """Check if distributed training is enabled and initialized"""
     if not dist.is_available():
         return False
     if not dist.is_initialized():
@@ -38,10 +38,7 @@ def is_dist_avail_and_initialized():
 
 
 def synchronize():
-    """
-    Helper function to synchronize (barrier) among all processes when
-    using distributed training
-    """
+    """Synchronize all processes in distributed training"""
     if not dist.is_available():
         return
     if not dist.is_initialized():
@@ -53,13 +50,7 @@ def synchronize():
 
 
 def all_gather(data):
-    """
-    Run all_gather on arbitrary picklable data (not necessarily tensors)
-    Args:
-        data: any picklable object
-    Returns:
-        list[data]: list of data gathered from each rank
-    """
+    """Gather arbitrary picklable data from all processes in distributed training"""
     to_device = "cuda"
     #to_device = torch.device("cpu")
     
@@ -99,14 +90,7 @@ def all_gather(data):
 
 
 def reduce_dict(input_dict, average=True):
-    """
-    Args:
-        input_dict (dict): all the values will be reduced
-        average (bool): whether to do average or sum
-    Reduce the values in the dictionary from all processes so that process with rank
-    0 has the averaged results. Returns a dict with the same fields as
-    input_dict, after reduction.
-    """
+    """Reduce dictionary values across all processes with optional averaging"""
     world_size = get_world_size()
     if world_size < 2:
         return input_dict
@@ -128,11 +112,7 @@ def reduce_dict(input_dict, average=True):
 
 
 def reduce_loss_dict(loss_dict):
-    """
-    Reduce the loss dictionary from all processes so that process with rank
-    0 has the averaged results. Returns a dict with the same fields as
-    loss_dict, after reduction.
-    """
+    """Reduce loss dictionary from all processes and average on rank 0"""
     world_size = get_world_size()
     if world_size < 2:
         return loss_dict

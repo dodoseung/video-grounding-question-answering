@@ -1,9 +1,3 @@
-"""
-This file is a modified version of the VidSwin from https://github.com/SwinTransformer/Video-Swin-Transformer. 
-The original code has been modified for use in the ReferFormer
-(https://github.com/wjn922/ReferFormer/blob/main/models/video_swin_transformer.py), with additional changes made by me.
-"""
-
 import os
 import torch
 import torch.nn as nn
@@ -19,7 +13,7 @@ from typing import AnyStr
 
 
 class Mlp(nn.Module):
-    """ Multilayer perceptron."""
+    """Multilayer perceptron for Video Swin Transformer"""
 
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         super().__init__()
@@ -40,14 +34,7 @@ class Mlp(nn.Module):
 
 
 def window_partition(x, window_size):
-    """
-    Args:
-        x: (B, D, H, W, C)
-        window_size (tuple[int]): window size
-
-    Returns:
-        windows: (B*num_windows, window_size*window_size, C)
-    """
+    """Partition input tensor into windows for window-based attention"""
     B, D, H, W, C = x.shape
     x = x.view(B, D // window_size[0], window_size[0], H // window_size[1], window_size[1], W // window_size[2],
                window_size[2], C)
@@ -56,16 +43,7 @@ def window_partition(x, window_size):
 
 
 def window_reverse(windows, window_size, B, D, H, W):
-    """
-    Args:
-        windows: (B*num_windows, window_size, window_size, C)
-        window_size (tuple[int]): Window size
-        H (int): Height of image
-        W (int): Width of image
-
-    Returns:
-        x: (B, D, H, W, C)
-    """
+    """Reverse window partitioning back to original tensor shape"""
     x = windows.view(B, D // window_size[0], H // window_size[1], W // window_size[2], window_size[0], window_size[1],
                      window_size[2], -1)
     x = x.permute(0, 1, 4, 2, 5, 3, 6, 7).contiguous().view(B, D, H, W, -1)
@@ -73,6 +51,7 @@ def window_reverse(windows, window_size, B, D, H, W):
 
 
 def get_window_size(x_size, window_size, shift_size=None):
+    """Compute effective window size based on input dimensions"""
     use_window_size = list(window_size)
     if shift_size is not None:
         use_shift_size = list(shift_size)

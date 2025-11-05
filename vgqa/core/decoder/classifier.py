@@ -5,6 +5,7 @@ from ..bert_model.bert_module import BertLMPredictionHead, BertLayer_Cross
 from easydict import EasyDict as EDict
 
 class TemporalSampling(nn.Module):
+    """Temporal frame sampling classifier with cross-attention"""
     def __init__(self, width):
         super().__init__()
         self.class_embedding = nn.Parameter((width ** -0.5) * torch.randn(width))
@@ -32,6 +33,7 @@ class TemporalSampling(nn.Module):
 
 
 class SpatialActivation(nn.Module):
+    """Spatial activation classifier for attribute/verb prediction"""
     def __init__(self, width, vocab_size):
         super().__init__()
         self.vocab_size = vocab_size

@@ -4,11 +4,14 @@ from vgqa.utils.misc import NestedTensor
 
 
 def collate_fn(batch):
+    """Collate batch items into nested tensors for dataloader"""
+    # Transpose batch to group videos, texts, and targets
     transposed_batch = list(zip(*batch))
     videos = transposed_batch[0]
     texts = transposed_batch[1]
     targets  = transposed_batch[2]
-    
+
+    # Create batch dictionary with nested tensors
     batch_dict = {}
     batch_dict['durations'] = [video.shape[0] for video in videos]
     batch_dict['videos']  = NestedTensor.from_tensor_list(videos)

@@ -9,18 +9,13 @@ from easydict import EasyDict as edict
 
 
 def gelu(x):
-    """Implementation of the gelu activation function.
-        For information: OpenAI GPT"s gelu is slightly different (and gives slightly different results):
-        0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
-        Also see https://arxiv.org/abs/1606.08415
-    """
+    """GELU activation function"""
     return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
 
 
 class BertLayerNorm(nn.Module):
+    """Layer normalization module for BERT"""
     def __init__(self, hidden_size, eps=1e-12):
-        """Construct a layernorm module in the TF style (epsilon inside the square root).
-        """
         super(BertLayerNorm, self).__init__()
         self.weight = nn.Parameter(torch.ones(hidden_size))
         self.bias = nn.Parameter(torch.zeros(hidden_size))
@@ -34,6 +29,7 @@ class BertLayerNorm(nn.Module):
 
 
 class BertSelfAttention(nn.Module):
+    """Multi-head self-attention module for BERT"""
     def __init__(self, config):
         super(BertSelfAttention, self).__init__()
         if config.hidden_size % config.num_attention_heads != 0:
@@ -56,18 +52,8 @@ class BertSelfAttention(nn.Module):
         return x.permute(0, 2, 1, 3)  # (N, nh, L, dh)
 
     def forward(self, query_states, key_states, value_states):
-        """
-        Args:
-            query_states: (N, Lq, D)
-            key_states: (N, L, D)
-            value_states: (N, L, D)
-            attention_mask: (N, Lq, L)
-
-        Returns:
-
-        """
-        # only need to mask the dimension where the softmax (last dim) is applied, as another dim (second last)
-        # will be ignored in future computation anyway
+        """Compute multi-head attention and return context and attention map"""
+        # Project query, key, value
         mixed_query_layer = self.query(query_states)
         mixed_key_layer = self.key(key_states)
         mixed_value_layer = self.value(value_states)
@@ -96,6 +82,7 @@ class BertSelfAttention(nn.Module):
 
 
 class BertSelfOutput(nn.Module):
+    """Output projection for BERT self-attention with residual connection"""
     def __init__(self, config):
         super(BertSelfOutput, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
@@ -110,26 +97,21 @@ class BertSelfOutput(nn.Module):
 
 
 class BertAttention(nn.Module):
+    """BERT attention block combining self-attention and output projection"""
     def __init__(self, config):
         super(BertAttention, self).__init__()
         self.self = BertSelfAttention(config)
         self.output = BertSelfOutput(config)
 
     def forward(self, input_tensor, attention_mask=None):
-        """
-        Args:
-            input_tensor: (N, L, D)
-            attention_mask: (N, Lq, L)
-
-        Returns:
-
-        """
+        """Apply self-attention to input tensor"""
         self_output, att_map = self.self(input_tensor, input_tensor, input_tensor)
         attention_output = self.output(self_output, input_tensor)
         return attention_output, att_map
 
 
 class BertIntermediate(nn.Module):
+    """Feed-forward intermediate layer for BERT"""
     def __init__(self, config):
         super(BertIntermediate, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
@@ -142,6 +124,7 @@ class BertIntermediate(nn.Module):
 
 
 class BertOutput(nn.Module):
+    """Output projection for BERT feed-forward layer"""
     def __init__(self, config):
         super(BertOutput, self).__init__()
         self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
@@ -156,6 +139,7 @@ class BertOutput(nn.Module):
 
 
 class BertLayer(nn.Module):
+    """BERT layer with self-attention and feed-forward network"""
     def __init__(self, config):
         super(BertLayer, self).__init__()
         self.attention = BertAttention(config)
@@ -164,13 +148,7 @@ class BertLayer(nn.Module):
         self.output = BertOutput(config)
 
     def forward(self, hidden_states):
-        """
-        Args:
-            hidden_states: (N, L, D)
-            attention_mask: (N, L)
-        Returns:
-
-        """
+        """Apply BERT layer with self-attention and feed-forward"""
         attention_output, att_map = self.attention(hidden_states)  # (N, L, D)
         intermediate_output = self.hidden_intermediate(attention_output)  # (N, L, D)
         layer_output = self.output(intermediate_output, attention_output)  # (N, L, D)
@@ -178,18 +156,21 @@ class BertLayer(nn.Module):
         
 
 class BertAttention_Cross(nn.Module):
+    """BERT cross-attention between query and key-value pairs"""
     def __init__(self, config):
         super(BertAttention_Cross, self).__init__()
         self.self = BertSelfAttention(config)
         self.output = BertSelfOutput(config)
 
     def forward(self, q, kv):
+        """Apply cross-attention between query and key-value"""
         self_output, att_map = self.self(q, kv, kv)
         attention_output = self.output(self_output, q)
         return attention_output, att_map
 
 
 class BertLayer_Cross(nn.Module):
+    """BERT layer with cross-attention and feed-forward"""
     def __init__(self, config):
         super(BertLayer_Cross, self).__init__()
         self.config = config
@@ -199,6 +180,7 @@ class BertLayer_Cross(nn.Module):
         self.output = BertOutput(config)
 
     def forward(self, q, kv):
+        """Apply cross-attention layer with feed-forward"""
         attention_output, att_map = self.attention(q, kv)  # (N, L, D)
         intermediate_output = self.hidden_intermediate(attention_output)  # (N, L, D)
         layer_output = self.output(intermediate_output, attention_output)  # (N, L, D)
@@ -206,6 +188,7 @@ class BertLayer_Cross(nn.Module):
 
 
 class BertPredictionHeadTransform(nn.Module):
+    """Transform layer for BERT prediction head"""
     def __init__(self, config):
         super(BertPredictionHeadTransform, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
@@ -213,7 +196,7 @@ class BertPredictionHeadTransform(nn.Module):
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
     def forward(self, hidden_states):
-        """(N, L, D)"""
+        """Transform hidden states for prediction"""
         hidden_states = self.dense(hidden_states)
         hidden_states = self.transform_act_fn(hidden_states)
         hidden_states = self.LayerNorm(hidden_states)
@@ -221,6 +204,7 @@ class BertPredictionHeadTransform(nn.Module):
 
 
 class BertLMPredictionHead(nn.Module):
+    """Language modeling prediction head for BERT"""
     def __init__(self, config):
         super(BertLMPredictionHead, self).__init__()
         self.transform = BertPredictionHeadTransform(config)
@@ -228,7 +212,7 @@ class BertLMPredictionHead(nn.Module):
         self.bias = nn.Parameter(torch.zeros(config.vocab_size))
 
     def forward(self, hidden_states):
-        """(N, L, D)"""
+        """Predict vocabulary distribution from hidden states"""
         hidden_states = self.transform(hidden_states)
         hidden_states = self.decoder(hidden_states) + self.bias
         return hidden_states  # (N, L, vocab_size)

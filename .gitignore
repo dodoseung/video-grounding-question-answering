@@ -88,3 +88,4 @@ Thumbs.db
 .env
 .env.local
 *.orig
+.claude/

@@ -1,8 +1,6 @@
 from yacs.config import CfgNode as CN
 
-# -----------------------------------------------------------------------------
 # Config definition
-# -----------------------------------------------------------------------------
 _C = CN()
 _C.FROM_SCRATCH = True
 _C.DATA_TRUNK = None
@@ -13,9 +11,7 @@ _C.GLOVE_DIR = ''
 _C.TENSORBOARD_DIR = ''
 
 
-# -----------------------------------------------------------------------------
 # INPUT
-# -----------------------------------------------------------------------------
 _C.INPUT = CN()
 _C.INPUT.MAX_QUERY_LEN = 26
 _C.INPUT.MAX_VIDEO_LEN = 200
@@ -38,9 +34,7 @@ _C.INPUT.AUG_TRANSLATE = False
 _C.INPUT.FLIP_PROB_TRAIN = 0.5
 _C.INPUT.TEMP_CROP_PROB = 0.5
 
-# -----------------------------------------------------------------------------
 # Model Config
-# -----------------------------------------------------------------------------
 _C.MODEL = CN()
 _C.MODEL.DEVICE = "cuda"
 _C.MODEL.WEIGHT = ""
@@ -50,9 +44,7 @@ _C.MODEL.EMA_DECAY = 0.9998
 _C.MODEL.QUERY_NUM = 1   # each frame a single query
 _C.MODEL.DOWN_RATIO = 4
 
-# -----------------------------------------------------------------------------
 # Vision Encoder options
-# -----------------------------------------------------------------------------
 
 _C.MODEL.VISION_BACKBONE = CN()
 _C.MODEL.VISION_BACKBONE.NAME = 'resnet101'  # resnet50 or resnet101
@@ -60,10 +52,12 @@ _C.MODEL.VISION_BACKBONE.POS_ENC = 'sine'  # sine, sineHW or learned
 _C.MODEL.VISION_BACKBONE.DILATION = False # If true, we replace stride with dilation in the last convolutional block (DC5)
 _C.MODEL.VISION_BACKBONE.FREEZE = False # If true, freeze the vision backbone parameters
 
+_C.MODEL.VIDEO_SWIN = CN()
+_C.MODEL.VIDEO_SWIN.MODEL_NAME = 'video_swin_t_p4w7'
+_C.MODEL.VIDEO_SWIN.PRETRAINED = 'video_swin_t_p4w7_k400_1k'
+_C.MODEL.VIDEO_SWIN.FEATURE_DIM = 768
+_C.MODEL.VIDEO_SWIN.FREEZE = True
 
-# -----------------------------------------------------------------------------
-# Language Encoder Config
-# -----------------------------------------------------------------------------
 _C.MODEL.TEXT_MODEL = CN()
 _C.MODEL.TEXT_MODEL.NAME = 'roberta-base'  # "bert-base", "roberta-large"
 _C.MODEL.TEXT_MODEL.FREEZE = False
@@ -78,32 +72,27 @@ _C.MODEL.LSTM.DROPOUT = 0
 _C.MODEL.LSTM_NUM_LAYERS = 2
 
 
-# -----------------------------------------------------------------------------
-# TASTVG Pipeline Config
-# -----------------------------------------------------------------------------
-_C.MODEL.TASTVG = CN()
-_C.MODEL.TASTVG.HIDDEN = 256
-_C.MODEL.TASTVG.QUERY_DIM = 4  # the anchor dim
-_C.MODEL.TASTVG.ENC_LAYERS = 6
-_C.MODEL.TASTVG.DEC_LAYERS = 6
-_C.MODEL.TASTVG.FFN_DIM = 2048
-_C.MODEL.TASTVG.DROPOUT = 0.1
-_C.MODEL.TASTVG.HEADS = 8
-_C.MODEL.TASTVG.USE_LEARN_TIME_EMBED = False
-_C.MODEL.TASTVG.USE_ACTION = True  # use the actioness head by default
-_C.MODEL.TASTVG.FROM_SCRATCH = True
+# VSTG Pipeline Config
+_C.MODEL.VSTG = CN()
+_C.MODEL.VSTG.HIDDEN = 256
+_C.MODEL.VSTG.QUERY_DIM = 4  # the anchor dim
+_C.MODEL.VSTG.ENC_LAYERS = 6
+_C.MODEL.VSTG.DEC_LAYERS = 6
+_C.MODEL.VSTG.FFN_DIM = 2048
+_C.MODEL.VSTG.DROPOUT = 0.1
+_C.MODEL.VSTG.HEADS = 8
+_C.MODEL.VSTG.USE_LEARN_TIME_EMBED = False
+_C.MODEL.VSTG.USE_ACTION = True  # use the actioness head by default
+_C.MODEL.VSTG.FROM_SCRATCH = True
 
 # For 2D-Map prediction
-_C.MODEL.TASTVG.TEMP_PRED_LAYERS = 6
-_C.MODEL.TASTVG.CONV_LAYERS = 4
-_C.MODEL.TASTVG.TEMP_HEAD = 'attn'   # attn or conv
-_C.MODEL.TASTVG.KERNAL_SIZE = 9
-_C.MODEL.TASTVG.MAX_MAP_SIZE = 128
-_C.MODEL.TASTVG.POOLING_COUNTS = [15,8,8,8]
+_C.MODEL.VSTG.TEMP_PRED_LAYERS = 6
+_C.MODEL.VSTG.CONV_LAYERS = 4
+_C.MODEL.VSTG.TEMP_HEAD = 'attn'   # attn or conv
+_C.MODEL.VSTG.KERNAL_SIZE = 9
+_C.MODEL.VSTG.MAX_MAP_SIZE = 128
+_C.MODEL.VSTG.POOLING_COUNTS = [15,8,8,8]
 
-# -----------------------------------------------------------------------------
-# DATASET related params
-# -----------------------------------------------------------------------------
 _C.DATASET = CN()
 _C.DATASET.NAME = 'VidSTG'
 _C.DATASET.NUM_CLIP_FRAMES = 32
@@ -113,18 +102,12 @@ _C.DATASET.APP_NUM = 20
 _C.DATASET.MOT_NUM = 34
 
 
-# -----------------------------------------------------------------------------
-# DataLoader
-# -----------------------------------------------------------------------------
 _C.DATALOADER = CN()
 # Number of data loading threads
 _C.DATALOADER.NUM_WORKERS = 4
 _C.DATALOADER.SIZE_DIVISIBILITY = 0
 _C.DATALOADER.ASPECT_RATIO_GROUPING = False
 
-# ---------------------------------------------------------------------------- #
-# Solver
-# ---------------------------------------------------------------------------- #
 _C.SOLVER = CN()
 _C.SOLVER.MAX_EPOCH = 30
 _C.SOLVER.BATCH_SIZE = 1   # The video number per GPU, should be set 1.

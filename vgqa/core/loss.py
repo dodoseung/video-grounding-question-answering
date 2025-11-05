@@ -9,17 +9,19 @@ from vgqa.utils.comm import is_dist_avail_and_initialized, get_world_size
 
 
 class VideoSTGLoss(nn.Module):
+    """Loss function for video spatio-temporal grounding"""
     def __init__(self, cfg, losses):
-        """Create the criterion.
-        """
+        """Initialize loss function with configuration and loss types"""
         super().__init__()
         self.cfg = cfg
         self.losses = losses
         self.eos_coef = cfg.SOLVER.EOS_COEF
     
     def loss_boxes(self, outputs, targets, num_boxes):
+        """Compute bounding box loss (L1 + GIoU)"""
         assert "pred_boxes" in outputs
-        
+
+        # Compute L1 loss for bounding boxes
         src_boxes = outputs["pred_boxes"]
         target_boxes = torch.cat([target["boxs"].bbox for target in targets], dim=0)
         loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction="none")
@@ -27,6 +29,7 @@ class VideoSTGLoss(nn.Module):
         losses = {}
         losses["loss_bbox"] = loss_bbox.sum() / max(num_boxes, 1)
 
+        # Compute generalized IoU loss
         loss_giou = 1 - torch.diag(
             generalized_box_iou(box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes))
         )
@@ -34,22 +37,25 @@ class VideoSTGLoss(nn.Module):
         return losses
 
     def logits_f_m(self, outputs, targets, num_boxes):
+        """Compute motion temporal classification loss"""
         assert "logits_f_m" in outputs
         losses = {}
         pred_logits = outputs['logits_f_m']
         gt_logits = targets[0]["actioness"].float()
         losses["logits_f_m"] = F.binary_cross_entropy_with_logits(pred_logits, gt_logits)
         return losses
-    
+
     def logits_f_a(self, outputs, targets, num_boxes):
+        """Compute appearance temporal classification loss"""
         assert "logits_f_a" in outputs
         losses = {}
         pred_logits = outputs['logits_f_a']
         gt_logits = targets[0]["actioness"].float()
         losses["logits_f_a"] = F.binary_cross_entropy_with_logits(pred_logits, gt_logits)
         return losses
-    
+
     def logits_r_a(self, outputs, targets, num_boxes):
+        """Compute attribute spatial classification loss"""
         assert "logits_r_a" in outputs
         losses = {}
         pred_logits = outputs['logits_r_a']
@@ -61,8 +67,9 @@ class VideoSTGLoss(nn.Module):
         gt_logits = gt_logits.unsqueeze(0)
         losses["logits_r_a"] = F.binary_cross_entropy_with_logits(pred_logits, gt_logits)
         return losses
-    
+
     def logits_r_m(self, outputs, targets, num_boxes):
+        """Compute verb spatial classification loss"""
         assert "logits_r_m" in outputs
         losses = {}
         pred_logits = outputs['logits_r_m']
@@ -76,24 +83,27 @@ class VideoSTGLoss(nn.Module):
         return losses
 
     def loss_actioness(self, outputs, targets, gt_temp_bound, time_mask=None):
+        """Compute frame actioness classification loss"""
         assert "pred_actioness" in outputs
         losses = {}
         pred_actioness = outputs['pred_actioness'].squeeze(-1)
         target_actioness = torch.stack([target["actioness"] for target in targets], dim=0).float()
+
+        # Weight foreground frames higher than background
         weight = torch.full(pred_actioness.shape, self.eos_coef, device=pred_actioness.device)
-        
         for i_b in range(len(weight)):
             temp_bound = gt_temp_bound[i_b]
             weight[i_b][temp_bound[0] : temp_bound[1] + 1] = 1
-    
+
         loss_actioness = F.binary_cross_entropy_with_logits(pred_actioness, \
                 target_actioness, weight=weight, reduction='none')
-        
+
         loss_actioness = loss_actioness * time_mask
         losses["loss_actioness"] = loss_actioness.mean()
         return losses
 
     def loss_sted(self, outputs, num_boxes, gt_temp_bound, positive_map, time_mask=None):
+        """Compute start/end temporal boundary loss"""
         assert "pred_sted" in outputs
         sted = outputs["pred_sted"]
         losses = {}

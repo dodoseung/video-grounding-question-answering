@@ -1,4 +1,3 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 import itertools
 
 import torch
@@ -7,19 +6,7 @@ from torch.utils.data.sampler import Sampler
 
 
 class GroupedBatchSampler(BatchSampler):
-    """
-    Wraps another sampler to yield a mini-batch of indices.
-    It enforces that elements from the same group should appear in groups of batch_size.
-    It also tries to provide mini-batches which follows an ordering which is
-    as close as possible to the ordering from the original sampler.
-
-    Arguments:
-        sampler (Sampler): Base sampler.
-        batch_size (int): Size of mini-batch.
-        drop_uneven (bool): If ``True``, the sampler will drop the batches whose
-            size is less than ``batch_size``
-
-    """
+    """Batch sampler that groups elements from same group together"""
 
     def __init__(self, sampler, group_ids, batch_size, drop_uneven=False):
         if not isinstance(sampler, Sampler):
@@ -37,6 +24,7 @@ class GroupedBatchSampler(BatchSampler):
         self._can_reuse_batches = False
 
     def _prepare_batches(self):
+        """Prepare batches by grouping elements and maintaining sample order"""
         dataset_size = len(self.group_ids)
         # get the sampled indices from the sampler
         sampled_ids = torch.as_tensor(list(self.sampler))

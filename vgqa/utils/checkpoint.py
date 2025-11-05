@@ -1,4 +1,3 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 import os
 from copy import deepcopy
 
@@ -24,6 +23,7 @@ model_urls = {
 
 
 class VSTGCheckpointer(object):
+    """Checkpoint manager for saving and loading model states"""
     def __init__(
         self,
         cfg,
@@ -45,12 +45,14 @@ class VSTGCheckpointer(object):
         self.is_train = is_train
 
     def save(self, name, **kwargs):
+        """Save model checkpoint to disk"""
         if not self.save_dir:
             return
 
         if not self.save_to_disk:
             return
 
+        # Prepare checkpoint data
         data = {}
         data["model"] = self.model.state_dict()
         if self.model_ema is not None:
@@ -59,13 +61,15 @@ class VSTGCheckpointer(object):
             data["optimizer"] = self.optimizer.state_dict()
         data.update(kwargs)
 
+        # Save checkpoint
         save_file = os.path.join(self.save_dir, "{}.pth".format(name))
         self.logger.info("Saving checkpoint to {}".format(save_file))
         torch.save(data, save_file)
-        
+
         self.tag_last_checkpoint(save_file)
 
     def load(self, f=None, with_optim=True, load_mapping={}):
+        """Load model checkpoint from disk"""
         if self.has_checkpoint() and self.is_train:
             # override argument with existing checkpoint
             f = self.get_checkpoint_file()

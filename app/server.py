@@ -16,17 +16,20 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# Import grounding inference module
 try:
     from vgqa.inference.grounding import predict as stvg_predict
 except Exception as e:
     raise RuntimeError("Failed to import vgqa.inference.grounding. Check PYTHONPATH and dependencies.") from e
 
+# Import QA inference module (optional)
 try:
     from vgqa.inference.qa import predict as qa_predict
 except Exception as e:
     print(f"Warning: QA module import failed: {e}")
     qa_predict = None
 
+# Import video reader
 try:
     from decord import VideoReader, cpu
 except Exception as e:
@@ -50,6 +53,7 @@ if VIDEOS_ROOT.exists():
 _infer_lock = threading.Lock()
 
 
+# Safely resolve video path and validate
 def _safe_join_video(name: str) -> Path:
     p = (VIDEOS_ROOT / name).resolve()
     if not str(p).startswith(str(VIDEOS_ROOT)):
@@ -59,6 +63,7 @@ def _safe_join_video(name: str) -> Path:
     return p
 
 
+# List video files in directory
 def _list_videos_in(dir_path: Optional[str]) -> List[str]:
     base = VIDEOS_ROOT if not dir_path else (VIDEOS_ROOT / dir_path)
     base = base.resolve()
@@ -70,6 +75,7 @@ def _list_videos_in(dir_path: Optional[str]) -> List[str]:
     return sorted([f.name for f in base.iterdir() if f.is_file() and f.suffix.lower() in exts])
 
 
+# Extract video metadata (fps, frames, dimensions)
 def _video_meta(path: Path):
     vr = VideoReader(str(path), ctx=cpu(0))
     fps = float(vr.get_avg_fps()) if hasattr(vr, "get_avg_fps") else 30.0
@@ -79,6 +85,7 @@ def _video_meta(path: Path):
     return {"fps": fps, "total_frames": total_frames, "width": w, "height": h}
 
 
+# Root endpoint - serve index.html
 @app.get("/")
 async def root():
     index = STATIC_DIR / "index.html"
@@ -87,29 +94,34 @@ async def root():
     return FileResponse(str(index))
 
 
+# Health check endpoint
 @app.get("/api/health")
 async def health():
     return {"ok": True}
 
 
+# List available videos
 @app.get("/api/videos")
-async def list_videos(dir: Optional[str] = Query(default=None, description="상대 경로 (VIDEOS_ROOT 기준)")):
+async def list_videos(dir: Optional[str] = Query(default=None, description="Relative path from VIDEOS_ROOT")):
     files = _list_videos_in(dir)
     return {"directory": str(VIDEOS_ROOT), "files": files}
 
 
+# Get video metadata
 @app.get("/api/meta")
-async def video_meta(video: str = Query(..., description="파일명(또는 VIDEOS_ROOT 기준 상대경로)")):
+async def video_meta(video: str = Query(..., description="Video filename or relative path")):
     path = _safe_join_video(video)
     return _video_meta(path)
 
 
+# Request body for grounding prediction
 class PredictBody(BaseModel):
     video: str
     query: str
     device: Optional[str] = "auto"  # "auto" | "cpu" | "cuda"
 
 
+# Request body for query generation
 class GenerateQueriesBody(BaseModel):
     video: str
     num_queries: Optional[int] = 10
@@ -117,6 +129,7 @@ class GenerateQueriesBody(BaseModel):
     max_tokens: Optional[int] = 300
 
 
+# Request body for QA
 class QABody(BaseModel):
     video: str
     question: str
@@ -126,23 +139,23 @@ class QABody(BaseModel):
     bound_end: Optional[float] = None
 
 
+# Grounding prediction endpoint
 @app.post("/api/predict")
 async def predict(body: PredictBody):
     path = _safe_join_video(body.video)
     meta = _video_meta(path)
 
-    # 단일 동시 추론 강제
+    # Enforce single concurrent inference
     if not _infer_lock.acquire(blocking=False):
         raise HTTPException(409, "Another inference is in progress. Please wait.")
 
     try:
         device_arg = None if (body.device or "auto").lower() == "auto" else body.device
-        # run_stvg.predict 는 블로킹 → 스레드풀에서 실행
+        # Run blocking inference in thread pool
         res = await run_in_threadpool(
             stvg_predict,
             str(path),
             body.query,
-            # cfg_path와 ckpt_path는 run_stvg.py 기본값 사용
             device_str=device_arg,
         )
     except Exception as e:
@@ -150,7 +163,7 @@ async def predict(body: PredictBody):
     finally:
         _infer_lock.release()
 
-    # 메타정보 포함해 반환 (프론트가 즉시 사용)
+    # Return result with video metadata
     return {
         "video": {"name": path.name, "url": f"/videos/{path.name}"},
         "meta": meta,
@@ -158,6 +171,7 @@ async def predict(body: PredictBody):
     }
 
 
+# Generate grounding queries from video using QA model
 @app.post("/api/generate-queries")
 async def generate_queries(body: GenerateQueriesBody):
     """Generate grounding queries from video using QA model."""
@@ -166,11 +180,12 @@ async def generate_queries(body: GenerateQueriesBody):
 
     path = _safe_join_video(body.video)
 
-    # 단일 동시 추론 강제
+    # Enforce single concurrent inference
     if not _infer_lock.acquire(blocking=False):
         raise HTTPException(409, "Another inference is in progress. Please wait.")
 
     try:
+        # Create prompt for query generation
         question = (
             f"Generate {body.num_queries} text queries for video grounding. "
             "Each query should be a short phrase describing a visible action "
@@ -178,7 +193,7 @@ async def generate_queries(body: GenerateQueriesBody):
             "List them numbered."
         )
 
-        # QA 추론 실행
+        # Run QA inference
         res = await run_in_threadpool(
             qa_predict,
             str(path),
@@ -188,7 +203,7 @@ async def generate_queries(body: GenerateQueriesBody):
             max_new_tokens=body.max_tokens,
         )
 
-        # 응답에서 쿼리 추출
+        # Parse queries from answer
         answer = res.get("answer", "")
         queries = _parse_queries_from_answer(answer)
 
@@ -202,6 +217,7 @@ async def generate_queries(body: GenerateQueriesBody):
         _infer_lock.release()
 
 
+# Video question answering endpoint
 @app.post("/api/qa")
 async def qa(body: QABody):
     """Answer questions about the video using QA model."""
@@ -210,16 +226,17 @@ async def qa(body: QABody):
 
     path = _safe_join_video(body.video)
 
-    # 단일 동시 추론 강제
+    # Enforce single concurrent inference
     if not _infer_lock.acquire(blocking=False):
         raise HTTPException(409, "Another inference is in progress. Please wait.")
 
     try:
+        # Parse temporal bounds if provided
         bound = None
         if body.bound_start is not None and body.bound_end is not None:
             bound = (body.bound_start, body.bound_end)
 
-        # QA 추론 실행
+        # Run QA inference
         res = await run_in_threadpool(
             qa_predict,
             str(path),
@@ -236,6 +253,7 @@ async def qa(body: QABody):
         _infer_lock.release()
 
 
+# Parse numbered queries from QA model answer
 def _parse_queries_from_answer(answer: str) -> List[str]:
     """Parse numbered queries from QA model answer."""
     import re
@@ -257,15 +275,14 @@ def _parse_queries_from_answer(answer: str) -> List[str]:
             match = re.match(pattern, line)
             if match:
                 query = match.group(1).strip()
-                # Clean up
+                # Clean up query text
                 query = query.strip('"\'.,:')
                 if query and len(query) > 5:  # Minimum length
                     queries.append(query)
                 break
 
-    # If no structured format found, try to split by common delimiters
+    # If no structured format found, try to split by sentences
     if not queries and answer:
-        # Try splitting by sentences
         for sentence in re.split(r'[.!?]\s+', answer):
             sentence = sentence.strip()
             if len(sentence) > 10 and len(sentence) < 100:
@@ -274,8 +291,8 @@ def _parse_queries_from_answer(answer: str) -> List[str]:
     return queries[:20]  # Max 20 queries
 
 
+# Run development server
 if __name__ == "__main__":
-    # Local development server
     import uvicorn
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run("app.server:app", host="0.0.0.0", port=port, reload=False)

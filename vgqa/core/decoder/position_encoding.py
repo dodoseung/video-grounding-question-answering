@@ -5,24 +5,27 @@ from torch import nn
     
 
 class SeqEmbeddingLearned(nn.Module):
-    
+    """Learnable sequence position embeddings"""
     def __init__(self, num_pos_feats, d_model=256):
         super().__init__()
         self.embed = nn.Embedding(num_pos_feats, d_model)
         self.reset_parameters()
 
     def reset_parameters(self):
+        """Initialize embeddings with normal distribution"""
         nn.init.normal_(self.embed.weight)
 
     def forward(self, ln):
+        """Return positional embeddings for sequence of length ln"""
         return self.embed.weight[:ln].unsqueeze(1)
 
 
 class SeqEmbeddingSine(nn.Module):
-  
+    """Sinusoidal sequence position embeddings"""
     def __init__(self, max_len=200, d_model=512):
         super().__init__()
         self.max_len = max_len
+        # Generate sinusoidal position encodings
         position = torch.arange(max_len).unsqueeze(1)
         div_term = torch.exp(
             torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model)
@@ -33,14 +36,13 @@ class SeqEmbeddingSine(nn.Module):
         self.register_buffer("te", te)
 
     def forward(self, ln):
+        """Return positional embeddings for sequence of length ln"""
         pos_t = self.te[:ln]
         return pos_t
     
 
 class PositionEmbeddingLearned(nn.Module):
-    """
-    Absolute pos embedding, learned.
-    """
+    """Learnable 2D position embeddings for spatial features"""
 
     def __init__(self, num_pos_feats=256):
         super().__init__()
@@ -49,16 +51,20 @@ class PositionEmbeddingLearned(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
+        """Initialize embeddings with uniform distribution"""
         nn.init.uniform_(self.row_embed.weight)
         nn.init.uniform_(self.col_embed.weight)
 
     def forward(self, tensor_list):
+        """Generate 2D position embeddings for spatial feature map"""
         x = tensor_list.tensors
         h, w = x.shape[-2:]
         i = torch.arange(w, device=x.device)
         j = torch.arange(h, device=x.device)
+        # Embed x and y coordinates
         x_emb = self.col_embed(i)
         y_emb = self.row_embed(j)
+        # Combine x and y embeddings
         pos = (
             torch.cat(
                 [

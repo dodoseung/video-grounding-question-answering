@@ -1,8 +1,3 @@
-# Copyright (c) Aishwarya Kamath & Nicolas Carion. Licensed under the Apache License 2.0. All Rights Reserved
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
-"""
-Backbone modules.
-"""
 from collections import OrderedDict
 import torch
 import torch.nn.functional as F
@@ -14,13 +9,7 @@ from vgqa.utils.misc import NestedTensor
 
 
 class FrozenBatchNorm2d(torch.nn.Module):
-    """
-    BatchNorm2d where the batch statistics and the affine parameters are fixed.
-
-    Copy-paste from torchvision.misc.ops with added eps before rqsrt,
-    without which any other models than torchvision.models.resnet[18,34,50,101]
-    produce nans.
-    """
+    """BatchNorm2d with fixed statistics and parameters for inference"""
 
     def __init__(self, n):
         super(FrozenBatchNorm2d, self).__init__()
@@ -54,8 +43,8 @@ class FrozenBatchNorm2d(torch.nn.Module):
         )
 
     def forward(self, x):
-        # move reshapes to the beginning
-        # to make it fuser-friendly
+        """Apply frozen batch normalization"""
+        # Reshape parameters for broadcasting
         w = self.weight.reshape(1, -1, 1, 1)
         b = self.bias.reshape(1, -1, 1, 1)
         rv = self.running_var.reshape(1, -1, 1, 1)
@@ -67,6 +56,7 @@ class FrozenBatchNorm2d(torch.nn.Module):
 
 
 class BackboneBase(nn.Module):
+    """Base class for ResNet backbone with configurable layer freezing"""
     def __init__(
         self,
         backbone: nn.Module,
@@ -91,12 +81,14 @@ class BackboneBase(nn.Module):
         self.num_channels = num_channels
 
     def forward(self, tensor_list):
+        """Extract features from backbone and interpolate masks"""
         durations = tensor_list.durations
         xs = self.body(tensor_list.tensors)
         out = OrderedDict()
         for name, x in xs.items():
             m = tensor_list.mask
             assert m is not None
+            # Interpolate mask to match feature map size
             mask = F.interpolate(m[None].float(), size=x.shape[-2:]).to(torch.bool)[0]
             out[name] = NestedTensor(x, mask, durations)
         return out
@@ -122,6 +114,7 @@ class Backbone(BackboneBase):
 
 
 class GroupNorm32(torch.nn.GroupNorm):
+    """GroupNorm with 32 groups by default"""
     def __init__(self, num_channels, num_groups=32, **kargs):
         super().__init__(num_groups, num_channels, **kargs)
 
@@ -145,10 +138,12 @@ class GroupNormBackbone(BackboneBase):
 
 
 class Joiner(nn.Sequential):
+    """Combine backbone with position encoding"""
     def __init__(self, backbone, position_embedding):
         super().__init__(backbone, position_embedding)
 
     def forward(self, tensor_list):
+        """Extract features and add position embeddings"""
         xs = self[0](tensor_list)
         out = []
         pos = []

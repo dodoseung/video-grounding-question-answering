@@ -10,13 +10,18 @@ INPUT:
 
 MODEL:
   WEIGHT: checkpoints/pretrained/pretrained_resnet101_checkpoint.pth
-  WEIGHT_EVAL: checkpoints/grounding/tastvg_vidstg.pth
+  WEIGHT_EVAL: checkpoints/grounding/vidstg.pth
   VISION_BACKBONE:
     NAME: resnet101
     POS_ENC: sine
+  VIDEO_SWIN:
+    MODEL_NAME: video_swin_t_p4w7
+    PRETRAINED: video_swin_t_p4w7_k400_1k
+    FEATURE_DIM: 768
+    FREEZE: True
   TEXT_MODEL:
     NAME: roberta-base
-  TASTVG:
+  VSTG:
     FROM_SCRATCH: True
     USE_LEARN_TIME_EMBED: False
     USE_ACTION: True
@@ -31,7 +36,7 @@ DATALOADER:
   ASPECT_RATIO_GROUPING: False
 
 SOLVER:
-  MAX_EPOCH: 11
+  MAX_EPOCH: 1
   BATCH_SIZE: 1
   BBOX_COEF: 5
   GIOU_COEF: 3
@@ -50,7 +55,7 @@ SOLVER:
   VIS_BACKBONE_LR: 1e-5
   TEMP_LR: 2e-4
   OPTIMIZER: adamw
-  VAL_PERIOD: 500
+  VAL_PERIOD: 5000
   CHECKPOINT_PERIOD: 1000
   SHUFFLE: True
   SCHEDULE:

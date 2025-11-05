@@ -4,6 +4,7 @@ import torch
 
 
 class NestedTensor(object):
+    """Container for tensors with associated masks"""
     def __init__(self, tensors, mask):
         self.tensors = tensors
         self.mask = mask
@@ -26,6 +27,7 @@ class NestedTensor(object):
 
 
 class TargetTensor(object):
+    """Container for training target tensors including heatmaps and offsets"""
 
     def __init__(self, target : dict) -> None:
         self.spatial_hm = target['spatial_heatmap']
@@ -50,19 +52,9 @@ class TargetTensor(object):
 
 
 class VideoList(object):
-    """
-    Structure that holds a list of videos (of possibly
-    varying sizes) as a single tensor.
-    This works by padding the images to the same size,
-    and storing in a field the original sizes of each video
-    """
+    """Container for batch of videos with padding to handle varying sizes"""
 
     def __init__(self, tensors, video_sizes):
-        """
-        Arguments:
-            tensors (tensor)
-            video_sizes (list[tuple[int, int]])
-        """
         self.tensors = tensors
         self.video_sizes = video_sizes
 
@@ -72,14 +64,8 @@ class VideoList(object):
 
 
 def to_video_list(tensors, size_divisible=0):
-    """
-    tensors can be an VideoList, a torch.Tensor or
-    an iterable of Tensors. It can't be a numpy array.
-    When tensors is an iterable of Tensors, it pads
-    the Tensors with zeros so that they have the same
-    shape
-    """
-    
+    """Convert tensors to VideoList with padding for uniform batch size"""
+
     if isinstance(tensors, torch.Tensor) and size_divisible > 0:
         tensors = [tensors]
 
@@ -96,7 +82,6 @@ def to_video_list(tensors, size_divisible=0):
     elif isinstance(tensors, (tuple, list)):
         max_size = tuple(max(s) for s in zip(*[img.shape for img in tensors]))
 
-        # TODO Ideally, just remove this and let me model handle arbitrary
         # input sizs
         if size_divisible > 0:
             import math

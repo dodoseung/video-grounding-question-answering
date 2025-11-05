@@ -94,73 +94,53 @@
 
     <!-- Main Content -->
     <section>
-      <!-- Tabs -->
-      <div class="tabs">
-        <div class="tab active" data-tab="grounding">Grounding</div>
-        <div class="tab" data-tab="qa">Video QA</div>
-      </div>
-
-      <!-- Tab: Grounding -->
-      <div class="tab-content active" id="tab-grounding">
-        <div class="content-grid">
-          <!-- Left: Controls -->
-          <div class="content-left">
-            <div class="card">
-              <div class="card-title">Query Input</div>
-              <div class="col" style="gap:10px">
-                <input id="query" placeholder="Enter query (e.g., 'the man in blue jacket')" />
-                <button id="run" class="primary">Run Grounding</button>
-                <button id="genQueries" class="secondary">Generate Queries</button>
-              </div>
-              <div id="statusGround" class="status" style="margin-top:10px; display:none;"></div>
+      <!-- Unified Interface -->
+      <div class="content-grid">
+        <!-- Left: Controls -->
+        <div class="content-left">
+          <!-- Grounding Query Section -->
+          <div class="card">
+            <div class="card-title">Grounding Query</div>
+            <div class="col" style="gap:10px">
+              <input id="query" placeholder="Enter query (e.g., 'the man in blue jacket')" />
+              <button id="run" class="primary">Run Grounding</button>
+              <button id="genQueries" class="secondary">Generate Queries</button>
             </div>
-
-            <!-- Generated Queries -->
-            <div class="card" id="queriesCard" style="display:none;">
-              <div class="card-title">Generated Queries (Click to use)</div>
-              <div id="generatedQueries" class="col" style="max-height:400px; overflow-y:auto;"></div>
-            </div>
+            <div id="statusGround" class="status" style="margin-top:10px; display:none;"></div>
           </div>
 
-          <!-- Right: Video -->
-          <div class="content-right">
-            <div class="player-wrap">
-              <video id="player" controls crossorigin="anonymous"></video>
-              <canvas id="overlay" class="overlay"></canvas>
+          <!-- Generated Queries -->
+          <div class="card" id="queriesCard" style="display:none;">
+            <div class="card-title">Generated Queries (Click to use)</div>
+            <div id="generatedQueries" class="col" style="max-height:400px; overflow-y:auto;"></div>
+          </div>
+
+          <!-- Question Answering Section -->
+          <div class="card">
+            <div class="card-title">Question Answering</div>
+            <div class="col" style="gap:10px">
+              <input id="qaQuestion" placeholder="Ask a question about the video (e.g., 'What is happening in this video?')" />
+              <button id="askQuestionFull" class="primary">Ask Question on Full Video</button>
+              <button id="askQuestionSegment" class="secondary" disabled>Ask Question on Grounded Segment</button>
             </div>
-            <canvas id="timeline" class="timeline"></canvas>
-            <div class="meta" id="meta"></div>
+            <div id="statusQA" class="status" style="margin-top:10px; display:none;"></div>
+          </div>
+
+          <!-- Answer Display -->
+          <div class="card" id="qaAnswerCard" style="display:none;">
+            <div class="card-title">Answer</div>
+            <div id="qaAnswer" class="qa-answer"></div>
           </div>
         </div>
-      </div>
 
-      <!-- Tab: QA -->
-      <div class="tab-content" id="tab-qa">
-        <div class="content-grid">
-          <!-- Left: Controls -->
-          <div class="content-left">
-            <div class="card">
-              <div class="card-title">Ask a Question</div>
-              <div class="col" style="gap:10px">
-                <input id="qaQuestion" placeholder="Ask a question about the video (e.g., 'What is happening in this video?')" />
-                <button id="askQuestion" class="primary">Ask Question</button>
-              </div>
-              <div id="statusQA" class="status" style="margin-top:10px; display:none;"></div>
-            </div>
-
-            <div class="card" id="qaAnswerCard" style="display:none;">
-              <div class="card-title">Answer</div>
-              <div id="qaAnswer" class="qa-answer"></div>
-            </div>
+        <!-- Right: Video -->
+        <div class="content-right">
+          <div class="player-wrap">
+            <video id="player" controls crossorigin="anonymous"></video>
+            <canvas id="overlay" class="overlay"></canvas>
           </div>
-
-          <!-- Right: Video -->
-          <div class="content-right">
-            <div class="player-wrap">
-              <video id="playerQA" controls crossorigin="anonymous"></video>
-            </div>
-            <div class="meta" id="metaQA"></div>
-          </div>
+          <canvas id="timeline" class="timeline"></canvas>
+          <div class="meta" id="meta"></div>
         </div>
       </div>
     </section>
@@ -172,11 +152,9 @@
     // Elements
     const listEl = el('videoList');
     const player = el('player');
-    const playerQA = el('playerQA');
     const overlay = el('overlay');
     const timeline = el('timeline');
     const metaEl = el('meta');
-    const metaQAEl = el('metaQA');
     const statusGroundEl = el('statusGround');
     const statusQAEl = el('statusQA');
     const runBtn = el('run');
@@ -186,7 +164,8 @@
     const generatedQueriesEl = el('generatedQueries');
     const queriesCard = el('queriesCard');
     const qaQuestionEl = el('qaQuestion');
-    const askQuestionBtn = el('askQuestion');
+    const askQuestionFullBtn = el('askQuestionFull');
+    const askQuestionSegmentBtn = el('askQuestionSegment');
     const qaAnswerCard = el('qaAnswerCard');
     const qaAnswerEl = el('qaAnswer');
 
@@ -200,26 +179,6 @@
     let temporal = null;
     let naturalW = 0, naturalH = 0;
     let generatedQueries = [];
-
-    // Tab switching
-    document.querySelectorAll('.tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        const target = tab.dataset.tab;
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-        tab.classList.add('active');
-        el(`tab-${target}`).classList.add('active');
-
-        // Sync video players
-        if (target === 'qa') {
-          playerQA.src = player.src;
-          playerQA.currentTime = player.currentTime;
-        } else {
-          player.src = playerQA.src;
-          player.currentTime = playerQA.currentTime;
-        }
-      });
-    });
 
     // Video list
     function renderList() {
@@ -254,7 +213,6 @@
 
       const url = `/videos/${encodeURIComponent(name)}`;
       player.src = url;
-      playerQA.src = url;
       result = null;
       tubeMap = {};
       temporal = null;
@@ -264,7 +222,9 @@
       hideStatus(statusGroundEl);
       hideStatus(statusQAEl);
       metaEl.textContent = '';
-      metaQAEl.textContent = '';
+
+      // Disable segment QA button when selecting new video
+      askQuestionSegmentBtn.disabled = true;
 
       // Load meta
       try {
@@ -276,7 +236,6 @@
         naturalH = data.height || 0;
         const info = `${fps.toFixed(2)} fps · ${totalFrames} frames · ${naturalW}×${naturalH}`;
         metaEl.textContent = info;
-        metaQAEl.textContent = info;
       } catch {
         fps = 30; totalFrames = 0; naturalW = naturalH = 0;
       }
@@ -374,28 +333,35 @@
         if (temporal) {
           showStatus(statusGroundEl, `Grounded: ${temporal.start.toFixed(2)}s → ${temporal.end.toFixed(2)}s`, 'success');
           player.currentTime = temporal.start;
+
+          // Enable segment QA button when grounding succeeds
+          askQuestionSegmentBtn.disabled = false;
         } else {
           showStatus(statusGroundEl, 'Inference complete', 'success');
+          // Disable if no temporal bounds found
+          askQuestionSegmentBtn.disabled = true;
         }
 
         drawTimeline();
       } catch (e) {
         showStatus(statusGroundEl, `Failed: ${e}`, 'error');
         console.error(e);
+        // Disable button on error
+        askQuestionSegmentBtn.disabled = true;
       } finally {
         runBtn.disabled = false;
       }
     }
 
-    // Video QA
-    async function askQuestion() {
+    // Video QA - Full Video
+    async function askQuestionFull() {
       if (!active) { alert('Please select a video first'); return; }
       const question = (qaQuestionEl.value || '').trim();
       if (!question) { alert('Please enter a question'); return; }
 
-      askQuestionBtn.disabled = true;
+      askQuestionFullBtn.disabled = true;
       qaAnswerCard.style.display = 'none';
-      showStatus(statusQAEl, 'Thinking...', 'loading');
+      showStatus(statusQAEl, 'Thinking about full video...', 'loading');
 
       try {
         const r = await fetch('/api/qa', {
@@ -416,12 +382,53 @@
 
         qaAnswerEl.textContent = answer;
         qaAnswerCard.style.display = 'block';
-        showStatus(statusQAEl, 'Answer generated', 'success');
+        showStatus(statusQAEl, 'Answer generated (Full Video)', 'success');
       } catch (e) {
         showStatus(statusQAEl, `Failed: ${e}`, 'error');
         console.error(e);
       } finally {
-        askQuestionBtn.disabled = false;
+        askQuestionFullBtn.disabled = false;
+      }
+    }
+
+    // Video QA - Grounded Segment
+    async function askQuestionSegment() {
+      if (!active) { alert('Please select a video first'); return; }
+      if (!temporal) { alert('No grounded segment available. Run grounding first.'); return; }
+      const question = (qaQuestionEl.value || '').trim();
+      if (!question) { alert('Please enter a question'); return; }
+
+      askQuestionSegmentBtn.disabled = true;
+      qaAnswerCard.style.display = 'none';
+      showStatus(statusQAEl, `Thinking about segment ${temporal.start.toFixed(2)}s-${temporal.end.toFixed(2)}s...`, 'loading');
+
+      try {
+        const r = await fetch('/api/qa', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            video: active,
+            question: question,
+            bound_start: temporal.start,
+            bound_end: temporal.end,
+            num_frames: 32,
+            max_tokens: 256
+          })
+        });
+
+        if (!r.ok) throw new Error(await r.text());
+
+        const data = await r.json();
+        const answer = data.answer || 'No answer received';
+
+        qaAnswerEl.textContent = answer;
+        qaAnswerCard.style.display = 'block';
+        showStatus(statusQAEl, `Answer generated (Segment: ${temporal.start.toFixed(2)}s-${temporal.end.toFixed(2)}s)`, 'success');
+      } catch (e) {
+        showStatus(statusQAEl, `Failed: ${e}`, 'error');
+        console.error(e);
+      } finally {
+        askQuestionSegmentBtn.disabled = false;
       }
     }
 
@@ -525,7 +532,8 @@
     player.addEventListener('seeked', () => { drawOverlay(); drawTimeline(); });
     runBtn.addEventListener('click', runInference);
     genQueriesBtn.addEventListener('click', generateQueries);
-    askQuestionBtn.addEventListener('click', askQuestion);
+    askQuestionFullBtn.addEventListener('click', askQuestionFull);
+    askQuestionSegmentBtn.addEventListener('click', askQuestionSegment);
     refreshBtn.addEventListener('click', loadVideos);
 
     // Init

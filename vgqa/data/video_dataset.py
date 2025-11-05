@@ -19,10 +19,7 @@ from .words import replace_dict
 
 
 def merge_anno(rootdir):
-    """
-    Args:
-        rootdir: the dataset folder
-    """
+    """Merge annotation files from subdirectories into single directory"""
     origin_dir = os.path.join(rootdir,'annotation') 
     output_dir = os.path.join(rootdir,'bbox_annos')
     if not os.path.exists(output_dir):
@@ -40,12 +37,7 @@ def merge_anno(rootdir):
 
 
 def clean_anno(data):
-    """
-    Args:
-        data : all the groundtruth data item
-    Usage:
-        clean the language description, modify the wrong words
-    """
+    """Clean language descriptions and fix incorrect words in annotations"""
     word_pt = re.compile(r'[A-Za-z]',re.S)
     check = lambda word : bool(len(re.findall(word_pt,word)))
     max_len = 0
@@ -65,6 +57,7 @@ def clean_anno(data):
 
 
 class VidSTGDataset(data.Dataset):
+    """VidSTG dataset for spatio-temporal video grounding"""
 
     def __init__(self, cfg, split, transforms=None) -> None:
         super(VidSTGDataset,self).__init__()

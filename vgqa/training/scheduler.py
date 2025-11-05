@@ -1,12 +1,10 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 from bisect import bisect_right
 import torch
 from torch.optim import Optimizer
 
 
-# separating MultiStepLR with WarmupLR
-# but the current LRScheduler design doesn't allow it
 class WarmupMultiStepLR(torch.optim.lr_scheduler._LRScheduler):
+    """Learning rate scheduler with warmup and multi-step decay"""
     def __init__(
         self,
         optimizer,
@@ -52,6 +50,7 @@ class WarmupMultiStepLR(torch.optim.lr_scheduler._LRScheduler):
 
 
 class WarmupPolyLR(torch.optim.lr_scheduler._LRScheduler):
+    """Learning rate scheduler with warmup and polynomial decay"""
     def __init__(
         self,
         optimizer,
@@ -92,6 +91,7 @@ class WarmupPolyLR(torch.optim.lr_scheduler._LRScheduler):
 
 
 class WarmupReduceLROnPlateau(object):
+    """Learning rate scheduler with warmup and reduce on plateau"""
     def __init__(
         self,
         optimizer,
@@ -144,25 +144,17 @@ class WarmupReduceLROnPlateau(object):
         self.step(last_epoch)
 
     def state_dict(self):
-        """Returns the state of the scheduler as a :class:`dict`.
-
-        It contains an entry for every variable in self.__dict__ which
-        is not the optimizer.
-        """
+        """Returns the state of the scheduler as a dict"""
         return {key: value for key, value in self.__dict__.items() if key != 'optimizer'}
 
     def load_state_dict(self, state_dict):
-        """Loads the schedulers state.
-
-        Arguments:
-            state_dict (dict): scheduler state. Should be an object returned
-                from a call to :meth:`state_dict`.
-        """
+        """Loads the schedulers state from dict"""
         self.__dict__.update(state_dict)
 
     def get_lr(self):
+        """Calculate current learning rate with warmup"""
         warmup_factor = 1
-        # during warming up
+        # Apply warmup factor during warmup period
         if self.last_epoch < self.warmup_iters:
             if self.warmup_method == "constant":
                 warmup_factor = self.warmup_factor
@@ -215,9 +207,7 @@ def adjust_learning_rate(
     curr_step: int,
     num_training_steps: int
 ):
-    """
-    Adjust the lr according to the schedule.
-    """
+    """Adjust learning rate according to schedule and current step"""
     num_warmup_steps = round(cfg.SOLVER.WARMUP_PROP * num_training_steps)
     iter_per_epoch = round(num_training_steps / cfg.SOLVER.MAX_EPOCH)
     now_epoch = curr_step // iter_per_epoch

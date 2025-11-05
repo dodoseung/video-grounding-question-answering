@@ -12,14 +12,15 @@ from easydict import EasyDict as EDict
 
 
 class QueryDecoder(nn.Module):
+    """Query decoder for spatio-temporal grounding prediction"""
     def __init__(self, cfg):
         super().__init__()
-        d_model = cfg.MODEL.TASTVG.HIDDEN
-        nhead = cfg.MODEL.TASTVG.HEADS
-        num_layers = cfg.MODEL.TASTVG.DEC_LAYERS
+        d_model = cfg.MODEL.VSTG.HIDDEN
+        nhead = cfg.MODEL.VSTG.HEADS
+        num_layers = cfg.MODEL.VSTG.DEC_LAYERS
 
         self.d_model = d_model
-        self.query_pos_dim = cfg.MODEL.TASTVG.QUERY_DIM
+        self.query_pos_dim = cfg.MODEL.VSTG.QUERY_DIM
         self.nhead = nhead
         self.video_max_len = cfg.INPUT.MAX_VIDEO_LEN
         self.return_weights = cfg.SOLVER.USE_ATTN
@@ -43,7 +44,7 @@ class QueryDecoder(nn.Module):
         )
 
         # The position embedding of global tokens
-        if cfg.MODEL.TASTVG.USE_LEARN_TIME_EMBED:
+        if cfg.MODEL.VSTG.USE_LEARN_TIME_EMBED:
             self.time_embed = SeqEmbeddingLearned(self.video_max_len + 1, d_model)
         else:
             self.time_embed = SeqEmbeddingSine(self.video_max_len + 1, d_model)
@@ -72,6 +73,7 @@ class QueryDecoder(nn.Module):
                 nn.init.xavier_uniform_(p)
 
     def forward(self, encoded_info, vis_pos=None, itq=None, isq=None):
+        """Decode queries for spatial and temporal predictions"""
         encoded_feature = encoded_info["encoded_feature"]  # len, n_frame, d_model
         encoded_mask = encoded_info["encoded_mask"]  # n_frame, len
         n_vis_tokens = encoded_info["fea_map_size"][0] * encoded_info["fea_map_size"][1]
@@ -206,10 +208,10 @@ class PosDecoderLayer(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         # Decoder Self-Attention
-        d_model = cfg.MODEL.TASTVG.HIDDEN
-        nhead = cfg.MODEL.TASTVG.HEADS
-        dim_feedforward = cfg.MODEL.TASTVG.FFN_DIM
-        dropout = cfg.MODEL.TASTVG.DROPOUT
+        d_model = cfg.MODEL.VSTG.HIDDEN
+        nhead = cfg.MODEL.VSTG.HEADS
+        dim_feedforward = cfg.MODEL.VSTG.FFN_DIM
+        dropout = cfg.MODEL.VSTG.DROPOUT
         activation = "relu"
         self.sa_qcontent_proj = nn.Linear(d_model, d_model)
         self.sa_qpos_proj = nn.Linear(d_model, d_model)
@@ -229,7 +231,7 @@ class PosDecoderLayer(nn.Module):
         self.ca_v_proj = nn.Linear(d_model, d_model)
         self.ca_qpos_sine_proj = nn.Linear(d_model, d_model)
 
-        self.from_scratch_cross_attn = cfg.MODEL.TASTVG.FROM_SCRATCH
+        self.from_scratch_cross_attn = cfg.MODEL.VSTG.FROM_SCRATCH
         self.cross_attn_image = None
         self.cross_attn = None
         self.tgt_proj = None
@@ -422,10 +424,10 @@ class TimeDecoder(nn.Module):
 class TimeDecoderLayer(nn.Module):
     def __init__(self, cfg):
         super().__init__()
-        d_model = cfg.MODEL.TASTVG.HIDDEN
-        nhead = cfg.MODEL.TASTVG.HEADS
-        dim_feedforward = cfg.MODEL.TASTVG.FFN_DIM
-        dropout = cfg.MODEL.TASTVG.DROPOUT
+        d_model = cfg.MODEL.VSTG.HIDDEN
+        nhead = cfg.MODEL.VSTG.HEADS
+        dim_feedforward = cfg.MODEL.VSTG.FFN_DIM
+        dropout = cfg.MODEL.VSTG.DROPOUT
         activation = "relu"
 
         self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)

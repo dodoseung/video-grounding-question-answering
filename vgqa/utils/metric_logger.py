@@ -6,9 +6,7 @@ from .comm import is_dist_avail_and_initialized
 
 
 class SmoothedValue:
-    """Track a series of values and provide access to smoothed values over a
-    window or the global series average.
-    """
+    """Track series of values with smoothed statistics over a window"""
 
     def __init__(self, window_size=20, fmt=None):
         if fmt is None:
@@ -24,10 +22,7 @@ class SmoothedValue:
         self.total += value * num
 
     def synchronize_between_processes(self):
-        """
-        Distributed synchronization of the metric
-        Warning: does not synchronize the deque!
-        """
+        """Synchronize metric across processes in distributed training"""
         if not is_dist_avail_and_initialized():
             return
         t = torch.tensor([self.count, self.total], dtype=torch.float64, device="cuda")
@@ -70,11 +65,13 @@ class SmoothedValue:
 
 
 class MetricLogger(object):
+    """Log and track multiple metrics during training"""
     def __init__(self, delimiter="\t"):
         self.meters = defaultdict(SmoothedValue)
         self.delimiter = delimiter
 
     def update(self, **kwargs):
+        """Update metrics with new values"""
         for k, v in kwargs.items():
             if isinstance(v, torch.Tensor):
                 v = v.item()

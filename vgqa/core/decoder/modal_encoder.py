@@ -9,16 +9,17 @@ from .position_encoding import SeqEmbeddingLearned, SeqEmbeddingSine
 
 
 class CrossModalEncoder(nn.Module):
-    
+    """Cross-modal encoder for fusing visual and text features"""
+
     def __init__(self, cfg):
         super().__init__()
         # attention configuration
-        d_model = cfg.MODEL.TASTVG.HIDDEN
-        nhead = cfg.MODEL.TASTVG.HEADS
-        dim_feedforward = cfg.MODEL.TASTVG.FFN_DIM
-        dropout = cfg.MODEL.TASTVG.DROPOUT
+        d_model = cfg.MODEL.VSTG.HIDDEN
+        nhead = cfg.MODEL.VSTG.HEADS
+        dim_feedforward = cfg.MODEL.VSTG.FFN_DIM
+        dropout = cfg.MODEL.VSTG.DROPOUT
         activation = "relu"
-        num_layers = cfg.MODEL.TASTVG.ENC_LAYERS
+        num_layers = cfg.MODEL.VSTG.ENC_LAYERS
         self.d_model = d_model
         
         encoder_layer = TransformerEncoderLayer(
@@ -38,6 +39,7 @@ class CrossModalEncoder(nn.Module):
                 nn.init.xavier_uniform_(p)
                 
     def forward(self, videos: NestedTensor = None, vis_pos=None, texts: Tuple = None, vid=None):
+        """Encode video and text features with cross-modal attention"""
         vis_features, vis_mask, vis_durations = videos.decompose()
         assert vis_pos.shape[0] == sum(vis_durations), "{} != {}".format(vis_pos.shape[0], sum(vis_durations))
     
@@ -84,16 +86,17 @@ class CrossModalEncoder(nn.Module):
         
 
 class SpatialTemporalEncoder(nn.Module):
+    """Spatial-temporal encoder with separate spatial and temporal attention layers"""
     def __init__(self, cfg, encoder_layer, num_layers, norm=None, return_weights=False):
         super().__init__()
         self.spatial_layers = _get_clones(encoder_layer, num_layers)
         self.temporal_layers = _get_clones(encoder_layer, num_layers)
         video_max_len = cfg.INPUT.MAX_VIDEO_LEN
-        d_model = cfg.MODEL.TASTVG.HIDDEN 
+        d_model = cfg.MODEL.VSTG.HIDDEN
         self.d_model = d_model
-        
+
         # The position embedding of global tokens
-        if cfg.MODEL.TASTVG.USE_LEARN_TIME_EMBED:
+        if cfg.MODEL.VSTG.USE_LEARN_TIME_EMBED:
             self.time_embed = SeqEmbeddingLearned(video_max_len + 1 , d_model)
         else:
             self.time_embed = SeqEmbeddingSine(video_max_len + 1, d_model) 

@@ -10,21 +10,19 @@ from vgqa.utils.box_utils import np_box_iou
 import json
 
 def save_json(path, data):
+    """Save data to JSON file"""
     with open(path, "w") as f:
         return json.dump(data, f)
 
 class VidSTGiouEvaluator:
+    """Evaluator for VidSTG temporal and spatial IoU metrics"""
     def __init__(
         self,
         vidstg_path: str,
         subset: str = "test",
         iou_thresholds: list = None,
     ):
-        """
-        :param vidstg_path: path to VidSTG annotations
-        :param subset: train, val or test
-        :param iou_thresholds: IoU thresholds for the vIoU metrics
-        """
+        """Initialize VidSTG evaluator with annotations and IoU thresholds"""
         assert subset in ["train", "test", "val"], f"Wrong VidSTG subset {subset}"
     
         gt_data = []
@@ -49,6 +47,7 @@ class VidSTGiouEvaluator:
         self.iou_thresholds = iou_thresholds
 
     def evaluate(self, predictions: List[Dict], video_predictions: List[Dict], pred_conf: List[Dict], pred_kf: List[Dict]):
+        """Evaluate predictions and compute temporal and spatial IoU metrics"""
         vid_metrics = {}
         for video_id, video_pred in video_predictions.items():
             if video_id in vid_metrics:

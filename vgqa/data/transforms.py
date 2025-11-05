@@ -1,4 +1,3 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 import random
 
 import torch
@@ -10,10 +9,12 @@ from vgqa.utils.bounding_box import BoxList
 
 
 class Compose(object):
+    """Compose multiple transforms together"""
     def __init__(self, transforms):
         self.transforms = transforms
 
     def __call__(self, input_dict):
+        """Apply all transforms in sequence"""
         for t in self.transforms:
             input_dict = t(input_dict)
         return input_dict
@@ -28,6 +29,7 @@ class Compose(object):
 
 
 class ColorJitter(object):
+    """Apply random color jittering to video frames"""
     def __init__(self,brightness=0,contrast=0,saturation=0,hue=0):
         self.color_jitter = torchvision.transforms.ColorJitter(
             brightness=brightness,
@@ -36,6 +38,7 @@ class ColorJitter(object):
             hue=hue,)
 
     def __call__(self, input_dict):
+        """Apply color jitter with 80% probability"""
         if random.random() < 0.8:
             frames = input_dict['frames']
             frames = self.color_jitter(frames)
@@ -45,10 +48,12 @@ class ColorJitter(object):
 
 
 class RandomHorizontalFlip(object):
+    """Randomly flip video frames and bounding boxes horizontally"""
     def __init__(self, prob=0.5):
         self.prob = prob
 
     def __call__(self, input_dict):
+        """Flip frames and boxes, and swap left/right in text"""
         if random.random() < self.prob:
             frames = input_dict['frames']
             boxs = input_dict['boxs']
@@ -66,10 +71,7 @@ class RandomHorizontalFlip(object):
 
 
 class RandomSelect(object):
-    """
-    Randomly selects between transforms1 and transforms2,
-    with probability p for transforms1 and (1 - p) for transforms2
-    """
+    """Randomly select between two transform pipelines"""
 
     def __init__(self, transforms1, transforms2, p=0.5):
         self.transforms1 = transforms1
@@ -81,6 +83,7 @@ class RandomSelect(object):
 
 
 class RandomResize(object):
+    """Randomly resize frames while maintaining aspect ratio"""
     def __init__(self, min_size, max_size=None):
         if not isinstance(min_size, (list, tuple)):
             min_size = (min_size,)
@@ -88,6 +91,7 @@ class RandomResize(object):
         self.max_size = max_size
 
     def get_size(self, image_size):
+        """Compute target size based on constraints"""
         h, w = image_size
         size = random.choice(self.min_size)
         max_size = self.max_size

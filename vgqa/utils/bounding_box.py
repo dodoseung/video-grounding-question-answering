@@ -6,13 +6,7 @@ FLIP_TOP_BOTTOM = 1
 
 
 class BoxList(object):
-    """
-    Usage:
-        This class represents a set of bounding boxes.
-        The bounding boxes are represented as a Nx4 Tensor.
-        In order to uniquely determine the bounding boxes with respect
-        to an image, we also store the corresponding image dimensions.
-    """
+    """Container for bounding boxes with image size and coordinate mode"""
 
     def __init__(self, bbox, image_size, mode="xyxy"):
         device = bbox.device if isinstance(bbox, torch.Tensor) else torch.device("cpu")
@@ -34,10 +28,7 @@ class BoxList(object):
         self.mode = mode
 
     def convert(self, mode):
-        """
-        Args:
-            mode : xyxy xywh
-        """
+        """Convert bounding box format between xyxy and xywh"""
         if mode not in ("xyxy", "xywh"):
             raise ValueError("mode should be 'xyxy' or 'xywh'")
         if mode == self.mode:
@@ -70,11 +61,7 @@ class BoxList(object):
             raise RuntimeError("Should not be here")
     
     def shift(self, padded_size, left : int, top : int):
-        """
-        Returns a shifted copy of this bounding box
-        params:
-            left : xshift, top : yshift
-        """
+        """Shift bounding box by specified x and y offsets"""
         xmin, ymin, xmax, ymax = self._split_into_xyxy()
         shifted_xmin, shifted_xmax = xmin + left, xmax + left
         shifted_ymin, shifted_ymax = ymin + top, ymax + top
@@ -86,12 +73,7 @@ class BoxList(object):
 
 
     def resize(self, size, *args, **kwargs):
-        """
-        Returns a resized copy of this bounding box
-
-        :param size: The requested size in pixels, as a 2-tuple:
-            (width, height).
-        """
+        """Resize bounding box to new image size"""
 
         ratios = tuple(float(s) / float(s_orig) for s, s_orig in zip(size, self.size))
         if ratios[0] == ratios[1]:
@@ -114,13 +96,7 @@ class BoxList(object):
         return bbox.convert(self.mode)
 
     def transpose(self, method):
-        """
-        Transpose bounding box (flip or rotate in 90 degree steps)
-        :param method: One of :py:attr:`PIL.Image.FLIP_LEFT_RIGHT`,
-          :py:attr:`PIL.Image.FLIP_TOP_BOTTOM`, :py:attr:`PIL.Image.ROTATE_90`,
-          :py:attr:`PIL.Image.ROTATE_180`, :py:attr:`PIL.Image.ROTATE_270`,
-          :py:attr:`PIL.Image.TRANSPOSE` or :py:attr:`PIL.Image.TRANSVERSE`.
-        """
+        """Flip bounding box horizontally or vertically"""
         if method not in (FLIP_LEFT_RIGHT, FLIP_TOP_BOTTOM):
             raise NotImplementedError(
                 "Only FLIP_LEFT_RIGHT and FLIP_TOP_BOTTOM implemented"
@@ -146,9 +122,7 @@ class BoxList(object):
         return bbox.convert(self.mode)
 
     def check_crop_valid(self, region):
-        """
-        box : [x_min, y_min, w, h]
-        """
+        """Check if cropping would result in valid bounding box"""
         rymin, rxmin, h, w = region
         xmin, ymin, xmax, ymax = self._split_into_xyxy()
         cropped_xmin = (xmin - rxmin).clamp(min=0, max=w)
@@ -161,11 +135,7 @@ class BoxList(object):
         return valid
 
     def crop(self, region):
-        """
-        Cropss a rectangular region from this bounding box. The box is a
-        4-tuple defining the left, upper, right, and lower pixel
-        coordinate.
-        """
+        """Crop bounding box to specified rectangular region"""
         rymin, rxmin, h, w = region
         xmin, ymin, xmax, ymax = self._split_into_xyxy()
         cropped_xmin = (xmin - rxmin).clamp(min=0, max=w)
@@ -180,6 +150,7 @@ class BoxList(object):
         return bbox.convert(self.mode)
 
     def normalize(self):
+        """Normalize bounding box coordinates to [0, 1] range"""
         xmin, ymin, xmax, ymax = self._split_into_xyxy()
         image_width, image_height = self.size
         xmin = xmin / image_width
@@ -205,6 +176,7 @@ class BoxList(object):
         return self.bbox.shape[0]
 
     def area(self):
+        """Compute area of bounding boxes"""
         box = self.bbox
         if self.mode == "xyxy":
             area = (box[:, 2] - box[:, 0]) * (box[:, 3] - box[:, 1])
