@@ -1,2 +1,2 @@
-from .grouped_batch_sampler import GroupedBatchSampler
-from .iteration_based_batch_sampler import IterationBasedBatchSampler
+from .aspect_grouped_batch_sampler import GroupedBatchSampler
+from .fixed_iterations_batch_sampler import IterationBasedBatchSampler

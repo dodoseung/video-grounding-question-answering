@@ -1,10 +1,11 @@
 import math
+from typing import Optional
 
 import torch
 from torch import nn
 
 class PositionEmbeddingSineHW(nn.Module):
-    """Sinusoidal position embeddings with separate H and W temperatures"""
+    """Sinusoidal position embeddings with separate H and W temperatures."""
     def __init__(self, num_pos_feats=64, temperatureH=10000, temperatureW=10000, normalize=False, scale=None):
         super().__init__()
         self.num_pos_feats = num_pos_feats
@@ -18,7 +19,7 @@ class PositionEmbeddingSineHW(nn.Module):
         self.scale = scale
 
     def forward(self, tensor_list):
-        """Generate 2D sinusoidal position embeddings"""
+        """Generate 2D sinusoidal position embeddings."""
         x = tensor_list.tensors
         mask = tensor_list.mask
         assert mask is not None
@@ -47,7 +48,7 @@ class PositionEmbeddingSineHW(nn.Module):
 
 
 class PositionEmbeddingSine(nn.Module):
-    """Sinusoidal 2D position embeddings for image features"""
+    """Sinusoidal 2D position embeddings for image features."""
 
     def __init__(
         self, num_pos_feats=64, temperature=10000, normalize=False, scale=None
@@ -63,7 +64,7 @@ class PositionEmbeddingSine(nn.Module):
         self.scale = scale
 
     def forward(self, tensor_list):
-        """Generate 2D sinusoidal position embeddings"""
+        """Generate 2D sinusoidal position embeddings."""
         x = tensor_list.tensors
         mask = tensor_list.mask
         not_mask = ~mask
@@ -91,7 +92,7 @@ class PositionEmbeddingSine(nn.Module):
 
 
 class PositionEmbeddingLearned(nn.Module):
-    """Learnable 2D position embeddings"""
+    """Learnable 2D position embeddings."""
 
     def __init__(self, num_pos_feats=256):
         super().__init__()
@@ -100,12 +101,12 @@ class PositionEmbeddingLearned(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        """Initialize embeddings with uniform distribution"""
+        """Initialize embeddings with uniform distribution."""
         nn.init.uniform_(self.row_embed.weight)
         nn.init.uniform_(self.col_embed.weight)
 
     def forward(self, tensor_list):
-        """Generate learned 2D position embeddings"""
+        """Generate learned 2D position embeddings."""
         x = tensor_list.tensors
         h, w = x.shape[-2:]
         i = torch.arange(w, device=x.device)
@@ -128,7 +129,7 @@ class PositionEmbeddingLearned(nn.Module):
 
 
 def build_position_encoding(cfg):
-    """Build position encoding module based on config"""
+    """Build position encoding module based on config."""
     N_steps = cfg.MODEL.VSTG.HIDDEN // 2
     encode_type = cfg.MODEL.VISION_BACKBONE.POS_ENC
     if encode_type == "sine":

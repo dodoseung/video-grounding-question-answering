@@ -240,7 +240,7 @@ class SwinTransformerBlock3D(nn.Module):
         """ Forward function.
 
         Args:
-            x: Input feature, tensor size (B, D, H, W, C).
+            x: Input feature, tensor size (B, C, D, H, W).
             mask_matrix: Attention mask for cyclic shift.
         """
 
@@ -626,13 +626,7 @@ class SwinTransformer3D(nn.Module):
 
 
 class VideoSwinTransformerBackbone(nn.Module):
-    """
-    A wrapper which allows using Video-Swin Transformer as a temporal encoder for MTTR.
-    Check out video-swin's original paper at: https://arxiv.org/abs/2106.13230 for more info about this architecture.
-    Only the 'tiny' version of video swin was tested and is currently supported in our project.
-    Additionally, we slightly modify video-swin to make it output per-frame embeddings as required by MTTR (check our
-    paper's supplementary for more details), and completely discard of its 4th block.
-    """
+    """Wrapper to use Video-Swin Transformer as a temporal encoder with per-frame outputs."""
 
     def __init__(self, backbone_pretrained: bool, backbone_pretrained_path, train_backbone: bool, **kwargs):
         super(VideoSwinTransformerBackbone, self).__init__()
@@ -669,7 +663,7 @@ class VideoSwinTransformerBackbone(nn.Module):
             for parameter in self.parameters():
                 parameter.requires_grad_(False)
 
-    def forward(self, samples: torch.Tensor, num_frames):
+    def forward(self, samples: torch.Tensor, num_frames: int):
         # num_frames is needed, because we put time in batch dimension.
         # samples: [B*T, 3, H, W]
         n, c, h, w = samples.shape
@@ -756,16 +750,3 @@ def vidswin_model(model_name: AnyStr, model_path: AnyStr = None):
     return VideoSwinTransformerBackbone(True, model_path, True, **configs[model_name])
 
 
-if __name__ == '__main__':
-    model = vidswin_model("video_swin_b_p4w7", "video_swin_b_p4w7_k600_22k")
-    print(model)
-    inputs = torch.randn(10, 3, 224, 336)  # 10 = 2 x 5
-
-    # outs
-    # 0: (10, 96, 96, 56)
-    # 1: (10, 192, 48, 28)
-    # 2: (10, 384, 24, 14)
-    # 3: (10, 768, 12, 7)
-    out = model(inputs, num_frames=10)
-    for k, v in out.items():
-        print(f"{k}: {v.shape}")

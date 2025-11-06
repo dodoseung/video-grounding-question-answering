@@ -7,9 +7,9 @@ from torch import Tensor, nn
 
 
 class Gen2DMap(nn.Module):
-    """Generate 2D temporal map for video grounding"""
+    """Generate 2D temporal map for video grounding."""
     def __init__(self, cfg):
-        super().__init__()        
+        super().__init__()
         N = cfg.MODEL.TEMPFORMER.MAX_MAP_SIZE
         pooling_counts = cfg.MODEL.TEMPFORMER.POOLING_COUNTS
         self.map_size = N
@@ -33,7 +33,7 @@ class Gen2DMap(nn.Module):
                 [nn.MaxPool1d(3,2)] + [nn.MaxPool1d(2,1) for _ in range(c - 1)]
             )
 
-        self.mask2d = mask2d.to("cuda")
+        self.mask2d = mask2d
         self.maskij = maskij
         self.poolers = poolers
         
@@ -64,7 +64,7 @@ class Gen2DMap(nn.Module):
         
         
 class TempPredictionHead(nn.Module):
-    """The Temporal Interaction Head"""
+    """The Temporal Interaction Head."""
 
     def __init__(self, cfg):
         super().__init__()
@@ -94,7 +94,7 @@ class TempPredictionHead(nn.Module):
                 d_model, kernel_size, num_conv_layers, self.mask_2d
             )
         
-        self._reset_parameters()    
+        self._reset_parameters()
         self.predictor = nn.Conv2d(d_model, 1, 1)
         
         
@@ -179,7 +179,7 @@ class TransformerEncoderLayer(nn.Module):
     ):
         # from d_modelxNxN to NxNxd_model
         src = src.permute(1,2,0)
-        mask2d = self.mask2d
+        mask2d = self.mask2d.to(src.device)
         # row self attention
         q = k = self.with_pos_embed(src, pos)
         src2, _ = self.self_attn_row(
@@ -237,9 +237,7 @@ class TempConvInteraction(nn.Module):
         self.weights = [
             mask2weight(mask2d, mask_kernel, padding=first_padding) 
         ]
-        self.convs = nn.ModuleList(
-            [nn.Conv2d(hidden_size, hidden_size, k, padding=first_padding)]
-        )
+        self.convs = nn.ModuleList([nn.Conv2d(hidden_size, hidden_size, k, padding=first_padding)])
  
         for _ in range(num_stack_layers - 1):
             self.weights.append(mask2weight(self.weights[-1] > 0, mask_kernel))
@@ -249,7 +247,8 @@ class TempConvInteraction(nn.Module):
         for conv, weight in zip(self.convs, self.weights):
             x = conv(x).relu() * weight
         return x        
-
+        
 
 if __name__ == "__main__":
     model = Gen2DMap(64, [15, 8, 8])
+

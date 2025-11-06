@@ -1,16 +1,16 @@
-from cgitb import text
 import torch
 import torch.nn.functional as F
 
 from torch import nn
-from vgqa.utils.video_list import NestedTensor
+from vgqa.utils.video_containers import NestedTensor
 
 from pytorch_pretrained_bert.modeling import BertModel
 from transformers import RobertaModel, RobertaTokenizerFast
 
 
 class BERT(nn.Module):
-    """BERT text encoder with configurable layer extraction"""
+    """BERT text encoder with configurable layer extraction."""
+
     def __init__(self, name: str, train_bert: bool, enc_num, pretrain_weight):
         super().__init__()
         if name == 'bert-base-uncased':
@@ -26,25 +26,24 @@ class BERT(nn.Module):
                 parameter.requires_grad_(False)
 
     def forward(self, tensor_list: NestedTensor):
-        """Encode text through BERT and return specified layer output"""
+        """Encode text through BERT and return specified layer output."""
         if self.enc_num > 0:
-            # Use output from specific transformer encoder layer
-            all_encoder_layers, _ = self.bert(tensor_list.tensors, token_type_ids=None, attention_mask=tensor_list.mask)
+            all_encoder_layers, _ = self.bert(
+                tensor_list.tensors, token_type_ids=None, attention_mask=tensor_list.mask
+            )
             xs = all_encoder_layers[self.enc_num - 1]
         else:
-            # Use word embeddings directly
             xs = self.bert.embeddings.word_embeddings(tensor_list.tensors)
 
-        # Invert mask for attention (True = ignore)
         mask = tensor_list.mask.to(torch.bool)
         mask = ~mask
         out = NestedTensor(xs, mask)
-
         return out
 
 
 class Roberta(nn.Module):
-    """RoBERTa text encoder with feature dimension resizing"""
+    """RoBERTa text encoder with feature dimension resizing."""
+
     def __init__(self, name, outdim, freeze=False) -> None:
         super().__init__()
         self.body = RobertaModel.from_pretrained(name)
@@ -62,19 +61,14 @@ class Roberta(nn.Module):
         )
 
     def forward(self, texts, device):
-        """Encode text and return resized features for cross-modal fusion"""
-        # Tokenize text batch
-        tokenized = self.tokenizer.batch_encode_plus(texts,
-                        padding="longest", return_tensors="pt").to(device)
+        """Encode text and return resized features for cross-modal fusion."""
+        tokenized = self.tokenizer.batch_encode_plus(texts, padding="longest", return_tensors="pt").to(device)
         encoded_text = self.body(**tokenized)
         text_cls = encoded_text.pooler_output
 
-        # Transpose memory because pytorch's attention expects sequence first
         text_memory = encoded_text.last_hidden_state.transpose(0, 1)
-        # Invert attention mask that we get from huggingface because its the opposite in pytorch transformer
         text_attention_mask = tokenized.attention_mask.ne(1).bool()
 
-        # Resize the encoder hidden states to be of the same d_model as the decoder
         text_memory_resized = self.resizer(text_memory)
         text_cls_resized = self.resizer(text_cls)
 
@@ -82,7 +76,7 @@ class Roberta(nn.Module):
 
 
 class FeatureResizer(nn.Module):
-    """Resize feature dimensions with linear projection and layer normalization"""
+    """Resize feature dimensions with linear projection and layer normalization."""
 
     def __init__(self, input_feat_size, output_feat_size, dropout, do_ln=True):
         super().__init__()
@@ -93,7 +87,7 @@ class FeatureResizer(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, encoder_features):
-        """Project features to target dimension with normalization and dropout"""
+        """Project features to target dimension with normalization and dropout."""
         x = self.fc(encoder_features)
         if self.do_ln:
             x = self.layer_norm(x)

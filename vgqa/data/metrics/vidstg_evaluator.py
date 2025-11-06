@@ -1,54 +1,54 @@
 import os
-from typing import Dict, List
+import json
+from functools import reduce
+from typing import Any, Dict, List, Tuple, Optional
 
 import numpy as np
-from vgqa.utils.comm import is_main_process, all_gather
-
 import torch
-from functools import reduce
-from vgqa.utils.box_utils import np_box_iou
-import json
 
-def save_json(path, data):
-    """Save data to JSON file"""
+from vgqa.utils.distributed import is_main_process, all_gather
+from vgqa.utils.box_ops import np_box_iou
+
+def save_json(path: str, data: Dict[str, Any]) -> None:
+    """Save a dictionary to a JSON file."""
     with open(path, "w") as f:
-        return json.dump(data, f)
+        json.dump(data, f)
 
 class VidSTGiouEvaluator:
-    """Evaluator for VidSTG temporal and spatial IoU metrics"""
-    def __init__(
-        self,
-        vidstg_path: str,
-        subset: str = "test",
-        iou_thresholds: list = None,
-    ):
-        """Initialize VidSTG evaluator with annotations and IoU thresholds"""
+    """Evaluator for VidSTG temporal and spatial IoU metrics."""
+
+    def __init__(self, vidstg_path: str, subset: str = "test", iou_thresholds: Optional[List[float]] = None):
         assert subset in ["train", "test", "val"], f"Wrong VidSTG subset {subset}"
-    
-        gt_data = []
-        cache_dir = os.path.join(vidstg_path, 'data_cache')
-        dataset_cache = os.path.join(cache_dir,f'vidstd-{subset}-anno.cache')
+
+        cache_dir = os.path.join(vidstg_path, "data_cache")
+        dataset_cache = os.path.join(cache_dir, f"vidstd-{subset}-anno.cache")
         gt_data = torch.load(dataset_cache)
-      
-        self.vid2steds = {}  # map video_id to [start, end] of the GT tube
-        self.vid2box = {}  # map video to bbox
-        self.vid2names = {}
-        self.vid2sents = {}
-        
+
+        self.vid2steds: Dict[int, List[int]] = {}
+        self.vid2box: Dict[int, Dict[int, List[List[float]]]] = {}
+        self.vid2names: Dict[int, Any] = {}
+        self.vid2sents: Dict[int, str] = {}
+
         for data_item in gt_data:
-            video_id = data_item['item_id']
-            temp_gt = data_item['gt_temp_bound']
-            self.vid2names[video_id] = data_item['item_id'] # data_item['vid']
-            self.vid2sents[video_id] = data_item['description']
-            box_dict = data_item['bboxs']
-            self.vid2box[video_id]={key : [box_dict[key]] for key in box_dict}
-            self.vid2steds[video_id] = temp_gt
+            item_id = data_item["item_id"]
+            temp_gt = data_item["gt_temp_bound"]
+            self.vid2names[item_id] = data_item["item_id"]  # kept behavior
+            self.vid2sents[item_id] = data_item["description"]
+            box_dict = data_item["bboxs"]
+            self.vid2box[item_id] = {fid: [box_dict[fid]] for fid in box_dict}
+            self.vid2steds[item_id] = temp_gt
 
-        self.iou_thresholds = iou_thresholds
+        self.iou_thresholds = iou_thresholds or [0.3, 0.5]
 
-    def evaluate(self, predictions: List[Dict], video_predictions: List[Dict], pred_conf: List[Dict], pred_kf: List[Dict]):
-        """Evaluate predictions and compute temporal and spatial IoU metrics"""
-        vid_metrics = {}
+    def evaluate(
+        self,
+        predictions: Dict[int, Dict[int, List[List[float]]]],
+        video_predictions: Dict[int, Dict[str, Any]],
+        pred_conf: Dict[int, Any],
+        pred_kf: Dict[int, Tuple[float, float]],
+    ):
+        """Evaluate predictions and compute temporal and spatial IoU metrics."""
+        vid_metrics: Dict[int, Dict[str, Any]] = {}
         for video_id, video_pred in video_predictions.items():
             if video_id in vid_metrics:
                 print(f"Warning, multiple predictions found for video {video_id}")
@@ -90,12 +90,10 @@ class VidSTGiouEvaluator:
 
             viou = 0
             gt_viou = 0
-            prediction = predictions[video_id]
+            prediction = predictions.get(video_id, {})
 
-            for fid in self.vid2box[video_id].keys():  # iterate on all frames of the annotated moment to update GT metrics
+            for fid in self.vid2box[video_id].keys():
                 if fid not in prediction:
-                    # raise RuntimeError(f"No prediction for frame {fid}")
-                    # print(self.vid2box[video_id].keys(), fid)
                     continue
                 pred_boxes = prediction[fid]
                 gt_boxes = self.vid2box[video_id][fid]
@@ -106,34 +104,34 @@ class VidSTGiouEvaluator:
 
             viou = viou / max(len(union_predgt), 1)
             vid_metrics[video_id]["viou"] = viou
-            recalls = {thresh: 0 for thresh in self.iou_thresholds}
-            for thresh in self.iou_thresholds:
-                if viou > thresh:
-                    recalls[thresh] += 1
+            recalls = {th: 0 for th in self.iou_thresholds}
+            for th in self.iou_thresholds:
+                if viou > th:
+                    recalls[th] += 1
             vid_metrics[video_id].update(
                 {
-                    f"viou@{thresh}": recalls[thresh]
-                    for thresh in self.iou_thresholds
+                    f"viou@{th}": recalls[th]
+                    for th in self.iou_thresholds
                 }
             )
 
             # compute gt_viou@R
             gt_viou = gt_viou / max(len(self.vid2box[video_id]), 1)
             vid_metrics[video_id]["gt_viou"] = gt_viou
-            gt_recalls = {thresh: 0 for thresh in self.iou_thresholds}
-            for thresh in self.iou_thresholds:
-                if gt_viou > thresh:
-                    gt_recalls[thresh] += 1
+            gt_recalls = {th: 0 for th in self.iou_thresholds}
+            for th in self.iou_thresholds:
+                if gt_viou > th:
+                    gt_recalls[th] += 1
             vid_metrics[video_id].update(
                 {
-                    f"gt_viou@{thresh}": gt_recalls[thresh]
-                    for thresh in self.iou_thresholds
+                    f"gt_viou@{th}": gt_recalls[th]
+                    for th in self.iou_thresholds
                 }
             )
 
 
-        for id, kf_pr in pred_kf.items():
-            vid_metrics[id]['kf_pr'] = kf_pr
+        for vid, kf_pr in pred_kf.items():
+            vid_metrics[vid]['kf_pr'] = kf_pr
 
         return vid_metrics, self.vid2names, self.vid2sents
 
@@ -142,59 +140,50 @@ class VidSTGEvaluator(object):
     def __init__(
         self,
         logger,
-        vidstg_path,
-        subset,
-        iou_thresholds,
-        save_pred=False,
-        save_dir=None
+        vidstg_path: str,
+        subset: str,
+        iou_thresholds: List[float],
+        save_pred: bool = False,
+        save_dir: Optional[str] = None,
     ):
-        """
-        :param vidstg_path: path to VidSTG annotations
-        :param subset: train, val or test
-        :param iou_thresholds: IoU thresholds for the vIoU metrics
-        :param save_pred: whether to save predictions in the output of summarize
-        """
-        self.evaluator = VidSTGiouEvaluator(
-            vidstg_path,
-            subset=subset,
-            iou_thresholds=iou_thresholds,
-        )
-        self.predictions = {}
-        self.att_predictions = {}
-        self.confs = {}
-        self.video_predictions = {}
-        self.video_cross_attn = {}
-        self.kf_pred = {}
-        self.results = None
+        """High-level evaluator wrapper aggregating predictions across processes."""
+        self.evaluator = VidSTGiouEvaluator(vidstg_path, subset=subset, iou_thresholds=iou_thresholds)
+        self.predictions: Dict[int, Dict[int, List[List[float]]]] = {}
+        self.att_predictions: Dict[int, Any] = {}
+        self.confs: Dict[int, Any] = {}
+        self.video_predictions: Dict[int, Dict[str, Any]] = {}
+        self.video_cross_attn: Dict[int, Any] = {}
+        self.kf_pred: Dict[int, Tuple[float, float]] = {}
+        self.results: Optional[Dict[int, Dict[str, Any]]] = None
         self.iou_thresholds = iou_thresholds
         self.save_pred = save_pred
         self.save_dir = save_dir
         self.logger = logger
-        
-        self.tsa_weights = {}
-        self.text_weights = {}
-        self.spatial_weights = {}
-        self.pred_sted = {}
+
+        self.tsa_weights: Dict[int, Any] = {}
+        self.text_weights: Dict[int, Any] = {}
+        self.spatial_weights: Dict[int, Any] = {}
+        self.pred_sted: Dict[int, Any] = {}
 
     def accumulate(self):
-        pass
+        return None
 
-    def update(self, predictions):
+    def update(self, predictions: Dict[int, Dict[int, List[List[float]]]]):
         self.predictions.update(predictions)
 
-    def update_att(self, predictions):
+    def update_att(self, predictions: Dict[int, Any]):
         self.att_predictions.update(predictions)
 
-    def update_conf(self, confs):
+    def update_conf(self, confs: Dict[int, Any]):
         self.confs.update(confs)
 
-    def update_kf_pr(self, kf_pr):
+    def update_kf_pr(self, kf_pr: Dict[int, Tuple[float, float]]):
         self.kf_pred.update(kf_pr)
 
-    def update_cross_attn(self, cross_weights):
+    def update_cross_attn(self, cross_weights: Dict[int, Any]):
         self.video_cross_attn.update(cross_weights)
 
-    def video_update(self, video_predictions):
+    def video_update(self, video_predictions: Dict[int, Dict[str, Any]]):
         self.video_predictions.update(video_predictions)
 
     def synchronize_between_processes(self):
@@ -242,8 +231,8 @@ class VidSTGEvaluator(object):
                 counter[qtype] += 1
 
             for category in categories:  # average results per category
-                for key in metrics[qtype]:
-                    metrics[category][key] = metrics[category][key] / counter[category]
+                for key in metrics[category]:
+                    metrics[category][key] = metrics[category][key] / max(counter[category], 1)
                     result_str += f"{category} {key}: {metrics[category][key]:.4f}" + '\n'
 
             result_str += '=' * 100 + '\n'
@@ -270,3 +259,5 @@ class VidSTGEvaluator(object):
             return out
 
         return None
+
+

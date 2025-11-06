@@ -1,18 +1,19 @@
 import numpy as np
-from typing import List, Optional
+from typing import List, Optional, Tuple
+
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 from torchvision.ops.boxes import box_area
-from vgqa.core.net_utils import MLP, gen_sineembed_for_position, inverse_sigmoid
+from vgqa.core.model_utils import MLP, gen_sineembed_for_position, inverse_sigmoid
 from .position_encoding import SeqEmbeddingLearned, SeqEmbeddingSine
 from .attention import MultiheadAttention
-from ..bert_model.bert_module import BertLayerNorm
+from ..language.bert_module import BertLayerNorm
 from easydict import EasyDict as EDict
 
 
 class QueryDecoder(nn.Module):
-    """Query decoder for spatio-temporal grounding prediction"""
+    """Query decoder for spatio-temporal grounding prediction."""
     def __init__(self, cfg):
         super().__init__()
         d_model = cfg.MODEL.VSTG.HIDDEN
@@ -49,7 +50,7 @@ class QueryDecoder(nn.Module):
         else:
             self.time_embed = SeqEmbeddingSine(self.video_max_len + 1, d_model)
 
-        self.pos_fc = nn.Sequential(  # 300->768
+        self.pos_fc = nn.Sequential(
             BertLayerNorm(256, eps=1e-12),
             nn.Dropout(0.1),
             nn.Linear(256, 4),
@@ -57,7 +58,7 @@ class QueryDecoder(nn.Module):
             BertLayerNorm(4, eps=1e-12),
         )
 
-        self.time_fc = nn.Sequential(  # 300->768
+        self.time_fc = nn.Sequential(
             BertLayerNorm(256, eps=1e-12),
             nn.Dropout(0.1),
             nn.Linear(256, 256),
@@ -73,7 +74,7 @@ class QueryDecoder(nn.Module):
                 nn.init.xavier_uniform_(p)
 
     def forward(self, encoded_info, vis_pos=None, itq=None, isq=None):
-        """Decode queries for spatial and temporal predictions"""
+        """Decode queries for spatial and temporal predictions."""
         encoded_feature = encoded_info["encoded_feature"]  # len, n_frame, d_model
         encoded_mask = encoded_info["encoded_mask"]  # n_frame, len
         n_vis_tokens = encoded_info["fea_map_size"][0] * encoded_info["fea_map_size"][1]
@@ -98,7 +99,7 @@ class QueryDecoder(nn.Module):
 
         encoded_mask = encoded_mask[:, :-n_vis_tokens]
 
-        tgt_t = torch.zeros(t, b, self.d_model).to(device) if itq is None else itq[None, None, :].expand(t, 1, 256)
+        tgt_t = torch.zeros(t, b, self.d_model, device=device) if itq is None else itq[None, None, :].expand(t, 1, 256)
 
         outputs_time = self.time_decoder(
             query_tgt=tgt_t,
@@ -110,7 +111,7 @@ class QueryDecoder(nn.Module):
             encoded_mask=encoded_mask
         )
 
-        tgt_s = torch.zeros(t, b, self.d_model).to(device) if isq is None else isq[None, None, :].expand(t, 1, 256)
+        tgt_s = torch.zeros(t, b, self.d_model, device=device) if isq is None else isq[None, None, :].expand(t, 1, 256)
 
         outputs_pos = self.decoder(
             query_tgt=tgt_s, 

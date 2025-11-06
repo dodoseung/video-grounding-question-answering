@@ -1,9 +1,10 @@
 import torch
+from typing import Any, Dict, List
 from .scheduler import WarmupMultiStepLR, WarmupReduceLROnPlateau, WarmupPolyLR
 
 
-def update_ema(model, model_ema, decay):
-    """Apply exponential moving average update to model weights"""
+def update_ema(model: torch.nn.Module, model_ema: torch.nn.Module, decay: float) -> None:
+    """Apply exponential moving average update to model weights."""
     with torch.no_grad():
         if hasattr(model, "module"):
             # unwrapping DDP
@@ -14,7 +15,7 @@ def update_ema(model, model_ema, decay):
             ema_v.copy_(ema_v * decay + (1.0 - decay) * model_v)
 
 
-def make_optimizer(cfg, model, logger):
+def make_optimizer(cfg, model: torch.nn.Module, logger=None):
     """Create optimizer with different learning rates for different modules"""
     # Group parameters by module type
     vis_enc_param = [p for n, p in model.named_parameters() \
@@ -52,12 +53,12 @@ def make_optimizer(cfg, model, logger):
     elif optim_type== 'sgd':
         optimizer = torch.optim.SGD(param_list, lr=base_lr, weight_decay=weight_decay, momentum=cfg.SOLVER.MOMENTUM)
     else:
-        raise ValueError('Lr scheduler type not supportted ')
+        raise ValueError(f"Unsupported optimizer type: {optim_type}")
 
     return optimizer
 
 
-def make_lr_scheduler(cfg, optimizer, logger=None):
+def make_lr_scheduler(cfg, optimizer: torch.optim.Optimizer, logger=None):
     """Create learning rate scheduler based on configuration"""
     if cfg.SOLVER.SCHEDULE.TYPE == "WarmupMultiStepLR":
         return WarmupMultiStepLR(
@@ -91,4 +92,4 @@ def make_lr_scheduler(cfg, optimizer, logger=None):
             warmup_method=cfg.SOLVER.WARMUP_METHOD,
         )
     else:
-        raise ValueError("Invalid Schedule Type")
+        raise ValueError(f"Invalid Schedule Type: {cfg.SOLVER.SCHEDULE.TYPE}")

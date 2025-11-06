@@ -1,15 +1,16 @@
 import copy
+from typing import List, Optional, Tuple
+
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
-from typing import List, Optional, Tuple
 
-from vgqa.utils.misc import NestedTensor
+from vgqa.utils.training_utils import NestedTensor
 from .position_encoding import SeqEmbeddingLearned, SeqEmbeddingSine
 
 
 class CrossModalEncoder(nn.Module):
-    """Cross-modal encoder for fusing visual and text features"""
+    """Cross-modal encoder for fusing visual and text features."""
 
     def __init__(self, cfg):
         super().__init__()
@@ -29,8 +30,7 @@ class CrossModalEncoder(nn.Module):
         self.encoder = SpatialTemporalEncoder(cfg, encoder_layer, num_layers, encoder_norm)
         self.fusion = nn.Linear(d_model, d_model)
         
-        # The position embedding for feature map
-        # self.spatial_embed = PositionEmbeddingLearned(d_model // 2)
+        # The position embedding for feature map (kept for future usage)
         self._reset_parameters()
         
     def _reset_parameters(self):
@@ -39,7 +39,7 @@ class CrossModalEncoder(nn.Module):
                 nn.init.xavier_uniform_(p)
                 
     def forward(self, videos: NestedTensor = None, vis_pos=None, texts: Tuple = None, vid=None):
-        """Encode video and text features with cross-modal attention"""
+        """Encode video and text features with cross-modal attention."""
         vis_features, vis_mask, vis_durations = videos.decompose()
         assert vis_pos.shape[0] == sum(vis_durations), "{} != {}".format(vis_pos.shape[0], sum(vis_durations))
     
@@ -65,7 +65,7 @@ class CrossModalEncoder(nn.Module):
         mask = torch.cat([vis_mask, text_mask, vis_mask], dim=1)
         vis_pos = torch.cat([vis_pos, torch.zeros_like(text_features), vis_pos], dim=0)
 
-        # perfrom cross-modality interaction
+        # perform cross-modality interaction
         encoded_feature, frames_cls, videos_cls = self.encoder(
             features, 
             src_key_padding_mask=mask,
@@ -86,7 +86,7 @@ class CrossModalEncoder(nn.Module):
         
 
 class SpatialTemporalEncoder(nn.Module):
-    """Spatial-temporal encoder with separate spatial and temporal attention layers"""
+    """Spatial-temporal encoder with separate spatial and temporal attention layers."""
     def __init__(self, cfg, encoder_layer, num_layers, norm=None, return_weights=False):
         super().__init__()
         self.spatial_layers = _get_clones(encoder_layer, num_layers)

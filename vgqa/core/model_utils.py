@@ -2,32 +2,18 @@ import torch
 from torch import nn
 import math
 import torch.nn.functional as F
+from typing import Optional
 
 
-class MLP(nn.Module):
-    """Very simple multi-layer perceptron (also called FFN)"""
+def inverse_sigmoid(x: torch.Tensor, eps: float = 1e-3) -> torch.Tensor:
+    x = x.clamp(min=0, max=1)
+    x1 = x.clamp(min=eps)
+    x2 = (1 - x).clamp(min=eps)
+    return torch.log(x1 / x2)
 
-    def __init__(self, input_dim, hidden_dim, output_dim, num_layers, dropout=0):
-        super().__init__()
-        self.num_layers = num_layers
-        h = [hidden_dim] * (num_layers - 1)
-        self.layers = nn.ModuleList(
-            nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim])
-        )
-        self.dropout = dropout
-        if dropout:
-            self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
-        for i, layer in enumerate(self.layers):
-            x = F.relu(layer(x)) if i < self.num_layers - 1 else layer(x)
-            if self.dropout and i < self.num_layers:
-                x = self.dropout(x)
-        return x
-    
-
-def gen_sineembed_for_position(pos_tensor):
-    """Generate sinusoidal position embeddings for bounding boxes"""
+def gen_sineembed_for_position(pos_tensor: torch.Tensor) -> torch.Tensor:
+    """Generate sinusoidal position embeddings for bounding boxes."""
     scale = 2 * math.pi
     dim_t = torch.arange(128, dtype=torch.float32, device=pos_tensor.device)
     dim_t = 10000 ** (2 * torch.div(dim_t, 2, rounding_mode='floor') / 128)
@@ -54,8 +40,21 @@ def gen_sineembed_for_position(pos_tensor):
     return pos
 
 
-def inverse_sigmoid(x, eps=1e-3):
-    x = x.clamp(min=0, max=1)
-    x1 = x.clamp(min=eps)
-    x2 = (1 - x).clamp(min=eps)
-    return torch.log(x1/x2)
+class MLP(nn.Module):
+    """Very simple multi-layer perceptron (also called FFN)."""
+
+    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int, num_layers: int, dropout: float = 0.0):
+        super().__init__()
+        self.num_layers = num_layers
+        hidden_dims = [hidden_dim] * (num_layers - 1)
+        self.layers = nn.ModuleList(nn.Linear(n, k) for n, k in zip([input_dim] + hidden_dims, hidden_dims + [output_dim]))
+        self.dropout: Optional[nn.Dropout] = nn.Dropout(dropout) if dropout and dropout > 0 else None
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for i, layer in enumerate(self.layers):
+            x = F.relu(layer(x)) if i < self.num_layers - 1 else layer(x)
+            if self.dropout is not None and i < self.num_layers - 1:
+                x = self.dropout(x)
+        return x
+
+

@@ -8,7 +8,7 @@ import torch
 import numpy as np
 from torchvision import transforms
 
-from vgqa.utils.misc import NestedTensor
+from vgqa.utils.training_utils import NestedTensor
 from vgqa.training.evaluator import single_forward, linear_interp, linear_interp_conf
 from vgqa.core import build_postprocessors
 from .video_utils import load_video_reader, get_video_info, uniform_sample_indices, load_frames

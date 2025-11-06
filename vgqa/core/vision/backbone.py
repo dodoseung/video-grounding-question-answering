@@ -1,15 +1,17 @@
 from collections import OrderedDict
+from typing import Dict
+
 import torch
 import torch.nn.functional as F
 import torchvision
 from torch import nn
 from torchvision.models._utils import IntermediateLayerGetter
 
-from vgqa.utils.misc import NestedTensor
+from vgqa.utils.training_utils import NestedTensor
 
 
 class FrozenBatchNorm2d(torch.nn.Module):
-    """BatchNorm2d with fixed statistics and parameters for inference"""
+    """BatchNorm2d with fixed statistics and parameters for inference."""
 
     def __init__(self, n):
         super(FrozenBatchNorm2d, self).__init__()
@@ -43,7 +45,7 @@ class FrozenBatchNorm2d(torch.nn.Module):
         )
 
     def forward(self, x):
-        """Apply frozen batch normalization"""
+        """Apply frozen batch normalization."""
         # Reshape parameters for broadcasting
         w = self.weight.reshape(1, -1, 1, 1)
         b = self.bias.reshape(1, -1, 1, 1)
@@ -56,7 +58,7 @@ class FrozenBatchNorm2d(torch.nn.Module):
 
 
 class BackboneBase(nn.Module):
-    """Base class for ResNet backbone with configurable layer freezing"""
+    """Base class for ResNet backbone with configurable layer freezing."""
     def __init__(
         self,
         backbone: nn.Module,
@@ -81,7 +83,7 @@ class BackboneBase(nn.Module):
         self.num_channels = num_channels
 
     def forward(self, tensor_list):
-        """Extract features from backbone and interpolate masks"""
+        """Extract features from backbone and interpolate masks."""
         durations = tensor_list.durations
         xs = self.body(tensor_list.tensors)
         out = OrderedDict()
@@ -114,7 +116,7 @@ class Backbone(BackboneBase):
 
 
 class GroupNorm32(torch.nn.GroupNorm):
-    """GroupNorm with 32 groups by default"""
+    """GroupNorm with 32 groups by default."""
     def __init__(self, num_channels, num_groups=32, **kargs):
         super().__init__(num_groups, num_channels, **kargs)
 
@@ -138,12 +140,12 @@ class GroupNormBackbone(BackboneBase):
 
 
 class Joiner(nn.Sequential):
-    """Combine backbone with position encoding"""
+    """Combine backbone with position encoding."""
     def __init__(self, backbone, position_embedding):
         super().__init__(backbone, position_embedding)
 
     def forward(self, tensor_list):
-        """Extract features and add position embeddings"""
+        """Extract features and add position embeddings."""
         xs = self[0](tensor_list)
         out = []
         pos = []

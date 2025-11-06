@@ -1,24 +1,27 @@
 from time import time
+from typing import Dict, List
+
 import torch
 import torch.distributed
 import torch.nn.functional as F
 from torch import nn
 
-from vgqa.utils.box_utils import generalized_box_iou, box_cxcywh_to_xyxy, box_iou
-from vgqa.utils.comm import is_dist_avail_and_initialized, get_world_size
+from vgqa.utils.box_ops import generalized_box_iou, box_cxcywh_to_xyxy, box_iou
+from vgqa.utils.distributed import is_dist_avail_and_initialized, get_world_size
 
 
 class VideoSTGLoss(nn.Module):
-    """Loss function for video spatio-temporal grounding"""
-    def __init__(self, cfg, losses):
-        """Initialize loss function with configuration and loss types"""
+    """Loss function for video spatio-temporal grounding."""
+
+    def __init__(self, cfg, losses: List[str]):
+        """Initialize loss function with configuration and loss types."""
         super().__init__()
         self.cfg = cfg
         self.losses = losses
         self.eos_coef = cfg.SOLVER.EOS_COEF
     
     def loss_boxes(self, outputs, targets, num_boxes):
-        """Compute bounding box loss (L1 + GIoU)"""
+        """Compute bounding box loss (L1 + GIoU)."""
         assert "pred_boxes" in outputs
 
         # Compute L1 loss for bounding boxes
@@ -37,7 +40,7 @@ class VideoSTGLoss(nn.Module):
         return losses
 
     def logits_f_m(self, outputs, targets, num_boxes):
-        """Compute motion temporal classification loss"""
+        """Compute motion temporal classification loss."""
         assert "logits_f_m" in outputs
         losses = {}
         pred_logits = outputs['logits_f_m']
@@ -46,7 +49,7 @@ class VideoSTGLoss(nn.Module):
         return losses
 
     def logits_f_a(self, outputs, targets, num_boxes):
-        """Compute appearance temporal classification loss"""
+        """Compute appearance temporal classification loss."""
         assert "logits_f_a" in outputs
         losses = {}
         pred_logits = outputs['logits_f_a']
@@ -55,12 +58,13 @@ class VideoSTGLoss(nn.Module):
         return losses
 
     def logits_r_a(self, outputs, targets, num_boxes):
-        """Compute attribute spatial classification loss"""
+        """Compute attribute spatial classification loss."""
         assert "logits_r_a" in outputs
         losses = {}
         pred_logits = outputs['logits_r_a']
         if pred_logits is None or pred_logits.numel() == 0:
-            losses["logits_r_a"] = torch.tensor(0.0, device=outputs['logits_r_a'].device)
+            device = outputs['pred_boxes'].device if 'pred_boxes' in outputs else torch.device('cpu')
+            losses["logits_r_a"] = torch.tensor(0.0, device=device)
             return losses
         gt_logits = torch.zeros(pred_logits.size(-1)).to(pred_logits.device)
         gt_logits[outputs['attr_labels']] = 1
@@ -69,12 +73,13 @@ class VideoSTGLoss(nn.Module):
         return losses
 
     def logits_r_m(self, outputs, targets, num_boxes):
-        """Compute verb spatial classification loss"""
+        """Compute verb spatial classification loss."""
         assert "logits_r_m" in outputs
         losses = {}
         pred_logits = outputs['logits_r_m']
         if pred_logits is None or pred_logits.numel() == 0:
-            losses["logits_r_m"] = torch.tensor(0.0, device=outputs['logits_r_m'].device)
+            device = outputs['pred_boxes'].device if 'pred_boxes' in outputs else torch.device('cpu')
+            losses["logits_r_m"] = torch.tensor(0.0, device=device)
             return losses
         gt_logits = torch.zeros(pred_logits.size(-1)).to(pred_logits.device)
         gt_logits[outputs['verb_labels']] = 1
@@ -83,7 +88,7 @@ class VideoSTGLoss(nn.Module):
         return losses
 
     def loss_actioness(self, outputs, targets, gt_temp_bound, time_mask=None):
-        """Compute frame actioness classification loss"""
+        """Compute frame actioness classification loss."""
         assert "pred_actioness" in outputs
         losses = {}
         pred_actioness = outputs['pred_actioness'].squeeze(-1)
@@ -103,7 +108,7 @@ class VideoSTGLoss(nn.Module):
         return losses
 
     def loss_sted(self, outputs, num_boxes, gt_temp_bound, positive_map, time_mask=None):
-        """Compute start/end temporal boundary loss"""
+        """Compute start/end temporal boundary loss."""
         assert "pred_sted" in outputs
         sted = outputs["pred_sted"]
         losses = {}
@@ -153,7 +158,7 @@ class VideoSTGLoss(nn.Module):
     def loss_guided_attn(
         self, outputs, num_boxes, gt_temp_bound, positive_map, time_mask=None
     ):
-        """Compute guided attention loss
+        """Compute guided attention loss.
         targets dicts must contain the key "weights" containing a tensor of attention matrices of dim [B, T, T]
         """
         weights = outputs["weights"]  # BxTxT
@@ -197,11 +202,11 @@ class VideoSTGLoss(nn.Module):
         return loss_map[loss](outputs, targets, num_boxes, **kwargs)
 
     def forward(self, outputs, targets, durations):
-        """This performs the loss computation.
+        """Compute all configured losses.
         Parameters:
-             outputs: dict of tensors, see the output specification of the model for the format
-             targets: list of dicts, such that len(targets) == batch_size.
-                      The expected keys in each dict depends on the losses applied, see each loss' doc
+            outputs: dict of tensors, see the output specification of the model for the format
+            targets: list of dicts, such that len(targets) == batch_size.
+                     The expected keys in each dict depends on the losses applied, see each loss' doc
         """
         max_duration = max(durations)
         device = outputs["pred_boxes"].device

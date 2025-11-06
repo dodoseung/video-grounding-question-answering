@@ -1,166 +1,185 @@
-from yacs.config import CfgNode as CN
-
-# Config definition
-_C = CN()
-_C.FROM_SCRATCH = True
-_C.DATA_TRUNK = None
-
-_C.OUTPUT_DIR = ''
-_C.DATA_DIR = ''
-_C.GLOVE_DIR = ''
-_C.TENSORBOARD_DIR = ''
+from yacs.config import CfgNode as Cfg
 
 
-# INPUT
-_C.INPUT = CN()
-_C.INPUT.MAX_QUERY_LEN = 26
-_C.INPUT.MAX_VIDEO_LEN = 200
-
-# The input frame number
-_C.INPUT.TRAIN_SAMPLE_NUM = 64
-
-# The input video resolution
-_C.INPUT.RESOLUTION = 224
-# Values to be used for image normalization
-_C.INPUT.PIXEL_MEAN = [0.485, 0.456, 0.406]
-# Values to be used for image normalization
-_C.INPUT.PIXEL_STD = [0.229, 0.224, 0.225]
-# If perform multiscale training
-_C.INPUT.AUG_SCALE = True
-# If perform translate augumentation training
-_C.INPUT.AUG_TRANSLATE = False
-
-# Image ColorJitter
-_C.INPUT.FLIP_PROB_TRAIN = 0.5
-_C.INPUT.TEMP_CROP_PROB = 0.5
-
-# Model Config
-_C.MODEL = CN()
-_C.MODEL.DEVICE = "cuda"
-_C.MODEL.WEIGHT = ""
-_C.MODEL.WEIGHT_EVAL = ""  # Separate weight for evaluation
-_C.MODEL.EMA = True
-_C.MODEL.EMA_DECAY = 0.9998
-_C.MODEL.QUERY_NUM = 1   # each frame a single query
-_C.MODEL.DOWN_RATIO = 4
-
-# Vision Encoder options
-
-_C.MODEL.VISION_BACKBONE = CN()
-_C.MODEL.VISION_BACKBONE.NAME = 'resnet101'  # resnet50 or resnet101
-_C.MODEL.VISION_BACKBONE.POS_ENC = 'sine'  # sine, sineHW or learned
-_C.MODEL.VISION_BACKBONE.DILATION = False # If true, we replace stride with dilation in the last convolutional block (DC5)
-_C.MODEL.VISION_BACKBONE.FREEZE = False # If true, freeze the vision backbone parameters
-
-_C.MODEL.VIDEO_SWIN = CN()
-_C.MODEL.VIDEO_SWIN.MODEL_NAME = 'video_swin_t_p4w7'
-_C.MODEL.VIDEO_SWIN.PRETRAINED = 'video_swin_t_p4w7_k400_1k'
-_C.MODEL.VIDEO_SWIN.FEATURE_DIM = 768
-_C.MODEL.VIDEO_SWIN.FREEZE = True
-
-_C.MODEL.TEXT_MODEL = CN()
-_C.MODEL.TEXT_MODEL.NAME = 'roberta-base'  # "bert-base", "roberta-large"
-_C.MODEL.TEXT_MODEL.FREEZE = False
-
-# If true, use LSTM as the text encoder
-_C.MODEL.USE_LSTM = False
-_C.MODEL.LSTM = CN()
-_C.MODEL.LSTM.NAME = 'lstm'
-_C.MODEL.LSTM.HIDDEN_SIZE = 512
-_C.MODEL.LSTM.BIDIRECTIONAL = True
-_C.MODEL.LSTM.DROPOUT = 0
-_C.MODEL.LSTM_NUM_LAYERS = 2
+def _build_input_cfg() -> Cfg:
+    cfg = Cfg()
+    cfg.MAX_QUERY_LEN = 26
+    cfg.MAX_VIDEO_LEN = 200
+    # frame count per sample
+    cfg.TRAIN_SAMPLE_NUM = 64
+    # input spatial size
+    cfg.RESOLUTION = 224
+    # normalization
+    cfg.PIXEL_MEAN = [0.485, 0.456, 0.406]
+    cfg.PIXEL_STD = [0.229, 0.224, 0.225]
+    # augmentations
+    cfg.AUG_SCALE = True
+    cfg.AUG_TRANSLATE = False
+    cfg.FLIP_PROB_TRAIN = 0.5
+    cfg.TEMP_CROP_PROB = 0.5
+    return cfg
 
 
-# VSTG Pipeline Config
-_C.MODEL.VSTG = CN()
-_C.MODEL.VSTG.HIDDEN = 256
-_C.MODEL.VSTG.QUERY_DIM = 4  # the anchor dim
-_C.MODEL.VSTG.ENC_LAYERS = 6
-_C.MODEL.VSTG.DEC_LAYERS = 6
-_C.MODEL.VSTG.FFN_DIM = 2048
-_C.MODEL.VSTG.DROPOUT = 0.1
-_C.MODEL.VSTG.HEADS = 8
-_C.MODEL.VSTG.USE_LEARN_TIME_EMBED = False
-_C.MODEL.VSTG.USE_ACTION = True  # use the actioness head by default
-_C.MODEL.VSTG.FROM_SCRATCH = True
+def _build_model_cfg() -> Cfg:
+    m = Cfg()
+    m.DEVICE = "cuda"
+    m.WEIGHT = ""
+    m.WEIGHT_EVAL = ""  # separate weight for evaluation
+    m.EMA = True
+    m.EMA_DECAY = 0.9998
+    m.QUERY_NUM = 1  # each frame a single query
+    m.DOWN_RATIO = 4
 
-# For 2D-Map prediction
-_C.MODEL.VSTG.TEMP_PRED_LAYERS = 6
-_C.MODEL.VSTG.CONV_LAYERS = 4
-_C.MODEL.VSTG.TEMP_HEAD = 'attn'   # attn or conv
-_C.MODEL.VSTG.KERNAL_SIZE = 9
-_C.MODEL.VSTG.MAX_MAP_SIZE = 128
-_C.MODEL.VSTG.POOLING_COUNTS = [15,8,8,8]
+    # vision backbone
+    m.VISION_BACKBONE = Cfg()
+    m.VISION_BACKBONE.NAME = 'resnet101'  # resnet50 or resnet101
+    m.VISION_BACKBONE.POS_ENC = 'sine'  # sine, sineHW or learned
+    m.VISION_BACKBONE.DILATION = False  # replace stride with dilation in last block (DC5)
+    m.VISION_BACKBONE.FREEZE = False
 
-_C.DATASET = CN()
-_C.DATASET.NAME = 'VidSTG'
-_C.DATASET.NUM_CLIP_FRAMES = 32
-# The minimum gt frames in a sampled clip
-_C.DATASET.MIN_GT_FRAME = 4
-_C.DATASET.APP_NUM = 20
-_C.DATASET.MOT_NUM = 34
+    # video swin
+    m.VIDEO_SWIN = Cfg()
+    m.VIDEO_SWIN.MODEL_NAME = 'video_swin_t_p4w7'
+    m.VIDEO_SWIN.PRETRAINED = 'video_swin_t_p4w7_k400_1k'
+    m.VIDEO_SWIN.FEATURE_DIM = 768
+    m.VIDEO_SWIN.FREEZE = True
 
+    # text model
+    m.TEXT_MODEL = Cfg()
+    m.TEXT_MODEL.NAME = 'roberta-base'  # "bert-base", "roberta-large"
+    m.TEXT_MODEL.FREEZE = False
 
-_C.DATALOADER = CN()
-# Number of data loading threads
-_C.DATALOADER.NUM_WORKERS = 4
-_C.DATALOADER.SIZE_DIVISIBILITY = 0
-_C.DATALOADER.ASPECT_RATIO_GROUPING = False
+    # optional LSTM encoder
+    m.USE_LSTM = False
+    m.LSTM = Cfg()
+    m.LSTM.NAME = 'lstm'
+    m.LSTM.HIDDEN_SIZE = 512
+    m.LSTM.BIDIRECTIONAL = True
+    m.LSTM.DROPOUT = 0
+    m.LSTM_NUM_LAYERS = 2
 
-_C.SOLVER = CN()
-_C.SOLVER.MAX_EPOCH = 30
-_C.SOLVER.BATCH_SIZE = 1   # The video number per GPU, should be set 1.
-_C.SOLVER.SHUFFLE = True
-_C.SOLVER.BASE_LR = 2e-5
-_C.SOLVER.VIS_BACKBONE_LR = 1e-5
-_C.SOLVER.TEXT_LR = 2e-5
-_C.SOLVER.TEMP_LR = 1e-4
-_C.SOLVER.VERB_LR = 3e-3
-_C.SOLVER.OPTIMIZER = 'adamw'
-_C.SOLVER.MAX_GRAD_NORM = 0.1
+    # VSTG pipeline
+    m.VSTG = Cfg()
+    m.VSTG.HIDDEN = 256
+    m.VSTG.QUERY_DIM = 4  # anchor dim
+    m.VSTG.ENC_LAYERS = 6
+    m.VSTG.DEC_LAYERS = 6
+    m.VSTG.FFN_DIM = 2048
+    m.VSTG.DROPOUT = 0.1
+    m.VSTG.HEADS = 8
+    m.VSTG.USE_LEARN_TIME_EMBED = False
+    m.VSTG.USE_ACTION = True  # actioness head
+    m.VSTG.FROM_SCRATCH = True
 
-# loss weight hyper-parameter
-_C.SOLVER.BBOX_COEF = 5
-_C.SOLVER.GIOU_COEF = 2
-_C.SOLVER.TEMP_COEF = 2
-_C.SOLVER.ATTN_COEF = 1
-_C.SOLVER.ACTIONESS_COEF = 2
-_C.SOLVER.CONF_COEF = 1
-_C.SOLVER.CONF2_COEF = 1
-_C.SOLVER.CONF3_COEF = 1
-_C.SOLVER.CONF4_COEF = 1
+    # 2D-Map prediction
+    m.VSTG.TEMP_PRED_LAYERS = 6
+    m.VSTG.CONV_LAYERS = 4
+    m.VSTG.TEMP_HEAD = 'attn'  # attn or conv
+    m.VSTG.KERNAL_SIZE = 9
+    m.VSTG.MAX_MAP_SIZE = 128
+    m.VSTG.POOLING_COUNTS = [15, 8, 8, 8]
 
-_C.SOLVER.MOMENTUM = 0.9
-_C.SOLVER.WEIGHT_DECAY = 0.0001
-_C.SOLVER.GAMMA = 0.1
-_C.SOLVER.POWER = 0.9    # For Poly LRScheduler
-_C.SOLVER.STEPS = (30000,)
-
-_C.SOLVER.WARMUP_FACTOR = 1.0 / 3
-_C.SOLVER.WARMUP_ITERS = 500
-
-_C.SOLVER.WARMUP_PROP = 0.01
-_C.SOLVER.WARMUP_METHOD = "linear"
-
-_C.SOLVER.SCHEDULE = CN()
-_C.SOLVER.SCHEDULE.TYPE = "linear_with_warmup"
-_C.SOLVER.SCHEDULE.DROP_STEP = [8,12]
-
-# the following paramters are only used for WarmupReduceLROnPlateau
-_C.SOLVER.SCHEDULE.PATIENCE = 2
-_C.SOLVER.SCHEDULE.THRESHOLD = 1e-4
-_C.SOLVER.SCHEDULE.COOLDOWN = 1
-_C.SOLVER.SCHEDULE.FACTOR = 0.5
-_C.SOLVER.SCHEDULE.MAX_DECAY_STEP = 7
-
-_C.SOLVER.PRE_VAL = False
-_C.SOLVER.TO_VAL = True
-_C.SOLVER.VAL_PERIOD = 3000  # 2500    # every 10% training iterations completed, start a avaluation
-_C.SOLVER.CHECKPOINT_PERIOD = 5000
+    return m
 
 
-_C.SOLVER.USE_ATTN = False  # whether to use the guided attention loss, to compare with TubeDETR
-_C.SOLVER.SIGMA = 2.0  # standard deviation for the quantized gaussian law used for the kullback leibler divergence loss
-_C.SOLVER.USE_AUX_LOSS = True # whether to use auxiliary decoding losses (loss at each layer)
-_C.SOLVER.EOS_COEF = 0.1  # The coeff for negative sample
+def _build_dataset_cfg() -> Cfg:
+    d = Cfg()
+    d.NAME = 'VidSTG'
+    d.NUM_CLIP_FRAMES = 32
+    d.MIN_GT_FRAME = 4  # minimum gt frames in a sampled clip
+    d.APP_NUM = 20
+    d.MOT_NUM = 34
+    return d
+
+
+def _build_dataloader_cfg() -> Cfg:
+    dl = Cfg()
+    dl.NUM_WORKERS = 4
+    dl.SIZE_DIVISIBILITY = 0
+    dl.ASPECT_RATIO_GROUPING = False
+    return dl
+
+
+def _build_solver_cfg() -> Cfg:
+    s = Cfg()
+    s.MAX_EPOCH = 30
+    s.BATCH_SIZE = 1  # videos per GPU; should be 1
+    s.SHUFFLE = True
+    s.BASE_LR = 2e-5
+    s.VIS_BACKBONE_LR = 1e-5
+    s.TEXT_LR = 2e-5
+    s.TEMP_LR = 1e-4
+    s.VERB_LR = 3e-3
+    s.OPTIMIZER = 'adamw'
+    s.MAX_GRAD_NORM = 0.1
+
+    # loss weights
+    s.BBOX_COEF = 5
+    s.GIOU_COEF = 2
+    s.TEMP_COEF = 2
+    s.ATTN_COEF = 1
+    s.ACTIONESS_COEF = 2
+    s.CONF_COEF = 1
+    s.CONF2_COEF = 1
+    s.CONF3_COEF = 1
+    s.CONF4_COEF = 1
+
+    # lr scheduling
+    s.MOMENTUM = 0.9
+    s.WEIGHT_DECAY = 0.0001
+    s.GAMMA = 0.1
+    s.POWER = 0.9  # Poly LRScheduler
+    s.STEPS = (30000,)
+    s.WARMUP_FACTOR = 1.0 / 3
+    s.WARMUP_ITERS = 500
+    s.WARMUP_PROP = 0.01
+    s.WARMUP_METHOD = "linear"
+
+    s.SCHEDULE = Cfg()
+    s.SCHEDULE.TYPE = "linear_with_warmup"
+    s.SCHEDULE.DROP_STEP = [8, 12]
+    # WarmupReduceLROnPlateau-only params
+    s.SCHEDULE.PATIENCE = 2
+    s.SCHEDULE.THRESHOLD = 1e-4
+    s.SCHEDULE.COOLDOWN = 1
+    s.SCHEDULE.FACTOR = 0.5
+    s.SCHEDULE.MAX_DECAY_STEP = 7
+
+    s.PRE_VAL = False
+    s.TO_VAL = True
+    # every 10% training iterations completed, start an evaluation
+    s.VAL_PERIOD = 3000
+    s.CHECKPOINT_PERIOD = 5000
+
+    s.USE_ATTN = False  # guided attention loss (TubeDETR comparison)
+    s.SIGMA = 2.0  # std for quantized gaussian (KL-div loss)
+    s.USE_AUX_LOSS = True  # auxiliary decoding losses (per layer)
+    s.EOS_COEF = 0.1  # coeff for negative sample
+    return s
+
+
+def build_default_cfg() -> Cfg:
+    """Construct default configuration tree.
+
+    Returns an unfrozen CfgNode ready to be modified (merge_from_file/list).
+    """
+    root = Cfg()
+    # top-level
+    root.FROM_SCRATCH = True
+    root.DATA_TRUNK = None
+    root.OUTPUT_DIR = ''
+    root.DATA_DIR = ''
+    root.GLOVE_DIR = ''
+    root.TENSORBOARD_DIR = ''
+
+    # sections
+    root.INPUT = _build_input_cfg()
+    root.MODEL = _build_model_cfg()
+    root.DATASET = _build_dataset_cfg()
+    root.DATALOADER = _build_dataloader_cfg()
+    root.SOLVER = _build_solver_cfg()
+    return root
+
+
+# Backward-compat alias (some code may import _C directly)
+_C = build_default_cfg()

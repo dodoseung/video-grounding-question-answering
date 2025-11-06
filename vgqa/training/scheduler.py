@@ -1,5 +1,6 @@
 from bisect import bisect_right
 import torch
+from typing import List
 from torch.optim import Optimizer
 
 
@@ -41,12 +42,7 @@ class WarmupMultiStepLR(torch.optim.lr_scheduler._LRScheduler):
             elif self.warmup_method == "linear":
                 alpha = float(self.last_epoch) / self.warmup_iters
                 warmup_factor = self.warmup_factor * (1 - alpha) + alpha
-        return [
-            base_lr
-            * warmup_factor
-            * self.gamma ** bisect_right(self.milestones, self.last_epoch)
-            for base_lr in self.base_lrs
-        ]
+        return [base_lr * warmup_factor * (self.gamma ** bisect_right(self.milestones, self.last_epoch)) for base_lr in self.base_lrs]
 
 
 class WarmupPolyLR(torch.optim.lr_scheduler._LRScheduler):
@@ -82,12 +78,7 @@ class WarmupPolyLR(torch.optim.lr_scheduler._LRScheduler):
                 alpha = float(self.last_epoch) / self.warmup_iters
                 warmup_factor = self.warmup_factor * (1 - alpha) + alpha
         assert self.last_epoch >= 0
-        return [
-            base_lr
-            * warmup_factor
-            * ((1 - self.last_epoch / self.max_iter) ** self.gamma)  
-            for base_lr in self.base_lrs
-        ]
+        return [base_lr * warmup_factor * ((1 - self.last_epoch / self.max_iter) ** self.gamma) for base_lr in self.base_lrs]
 
 
 class WarmupReduceLROnPlateau(object):
@@ -160,12 +151,7 @@ class WarmupReduceLROnPlateau(object):
                 alpha = float(self.last_epoch) / self.warmup_iters
                 warmup_factor = self.warmup_factor * (1 - alpha) + alpha
         # 
-        return [
-            base_lr
-            * warmup_factor
-            * self.gamma ** self.stage_count
-            for base_lr in self.base_lrs
-        ]
+        return [base_lr * warmup_factor * (self.gamma ** self.stage_count) for base_lr in self.base_lrs]
 
     def step(self, metrics, epoch=None):
         if epoch is None:

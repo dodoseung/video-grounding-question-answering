@@ -1,8 +1,9 @@
-# Training script for spatio-temporal video grounding model
+"""Training entrypoint for spatio-temporal video grounding."""
+
 import sys
 from pathlib import Path
 
-# Add project root to Python path
+# Add project root to PYTHONPATH (Path-based)
 project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
@@ -14,289 +15,334 @@ import datetime
 from copy import deepcopy
 import torch
 import torch.backends.cudnn as cudnn
-import random
+
 from vgqa.config import cfg
-from vgqa.utils.comm import synchronize, get_rank, is_main_process, reduce_loss_dict
-from vgqa.utils.logger import setup_logger
-from vgqa.utils.misc import mkdir, save_config, set_seed, to_device
-from vgqa.utils.checkpoint import VSTGCheckpointer
+from vgqa.utils.distributed import (
+    synchronize,
+    get_rank,
+    is_main_process,
+    reduce_loss_dict,
+)
+from vgqa.utils.log_setup import setup_logger
+from vgqa.utils.training_utils import mkdir, save_config, set_seed, to_device
+from vgqa.utils.checkpoint_manager import VSTGCheckpointer
 from vgqa.data import make_data_loader, build_evaluator, build_dataset
 from vgqa.core import build_model, build_postprocessors
 from vgqa.training import make_optimizer, adjust_learning_rate, update_ema, do_eval
-from vgqa.utils.metric_logger import MetricLogger
+from vgqa.utils.metrics_logger import MetricLogger
 from torch.utils.tensorboard import SummaryWriter
-import torch.distributed as dist
-import itertools
 from tqdm import tqdm
 
 
-# Main training function
-def train(cfg, local_rank, distributed, logger):
-    # Build model and loss criterion
-    model, criteria, weight_dict = build_model(cfg)
-    device = torch.device(cfg.MODEL.DEVICE)
-    model.to(device)
-    criteria.to(device)
+class Trainer:
+    def __init__(self, cfg, local_rank: int, distributed: bool, logger):
+        self.cfg = cfg
+        self.local_rank = local_rank
+        self.distributed = distributed
+        self.logger = logger
 
-    # Setup optimizer and EMA model
-    optimizer = make_optimizer(cfg, model, logger)
-    model_ema = deepcopy(model) if cfg.MODEL.EMA else None
-    model_without_ddp = model
+        self.device = torch.device(cfg.MODEL.DEVICE)
+        self.model = None
+        self.criteria = None
+        self.weight_dict = None
+        self.optimizer = None
+        self.model_ema = None
+        self.model_without_ddp = None
 
-    # Setup distributed training if enabled
-    if distributed:
-        model = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[local_rank], output_device=local_rank,
-            find_unused_parameters=True
+        self.arguments = {"iteration": 0}
+        self.checkpointer = None
+        self.verbose_loss_keys = set()
+
+        self.train_loader = None
+        self.val_loader = None
+        self.writer = None
+        self.pbar = None
+
+    def setup(self):
+        # Build model, loss criterion, and weight dict
+        self.model, self.criteria, self.weight_dict = build_model(self.cfg)
+        self.model.to(self.device)
+        self.criteria.to(self.device)
+
+        # Optimizer and EMA model
+        self.optimizer = make_optimizer(self.cfg, self.model, self.logger)
+        self.model_ema = deepcopy(self.model) if self.cfg.MODEL.EMA else None
+        self.model_without_ddp = self.model
+
+        # DDP
+        if self.distributed:
+            self.model = torch.nn.parallel.DistributedDataParallel(
+                self.model,
+                device_ids=[self.local_rank],
+                output_device=self.local_rank,
+                find_unused_parameters=True,
+            )
+            self.model_without_ddp = self.model.module
+
+        # Checkpointer
+        save_to_disk = self.local_rank == 0
+        self.checkpointer = VSTGCheckpointer(
+            self.cfg,
+            self.model_without_ddp,
+            self.model_ema,
+            self.optimizer,
+            self.cfg.OUTPUT_DIR,
+            save_to_disk,
+            self.logger,
+            is_train=True,
         )
-        model_without_ddp = model.module
-    
-    # Initialize training state
-    arguments = {}
-    arguments["iteration"] = 0
+        extra = self.checkpointer.load(self.cfg.MODEL.WEIGHT)
+        self.arguments.update(extra)
 
-    # Setup checkpoint manager
-    output_dir = cfg.OUTPUT_DIR
-    save_to_disk = local_rank == 0
-    checkpointer = VSTGCheckpointer(
-        cfg, model_without_ddp, model_ema, optimizer, output_dir, save_to_disk, logger, is_train=True
-    )
-    extra_checkpoint_data = checkpointer.load(cfg.MODEL.WEIGHT)
-    arguments.update(extra_checkpoint_data)
-    
-    # Define losses to monitor
-    verbose_loss = set(["loss_bbox", "loss_giou", "loss_sted", "logits_f_m", "logits_f_a", "logits_r_a", "logits_r_m"])
-
-    if cfg.SOLVER.USE_ATTN:
-        verbose_loss.add("loss_guided_attn")
-
-    if cfg.MODEL.VSTG.USE_ACTION:
-        verbose_loss.add("loss_actioness")
-
-    # Prepare dataset cache on main process
-    if local_rank == 0:
-        split = ['train', 'test']
-        for mode in split:
-            _ = build_dataset(cfg, split=mode, transforms=None)
-
-    synchronize()
-
-    # Create data loaders
-    train_data_loader = make_data_loader(
-        cfg,
-        mode='train',
-        is_distributed=distributed,
-        start_iter=arguments["iteration"],
-    )
-    val_data_loader = make_data_loader(
-        cfg,
-        mode="test",
-        is_distributed=distributed,
-    )
-
-    # Setup TensorBoard writer
-    if cfg.TENSORBOARD_DIR and is_main_process():
-        mkdir(cfg.TENSORBOARD_DIR)
-        writer = SummaryWriter(cfg.TENSORBOARD_DIR)
-    else:
-        writer = None
-
-    checkpoint_period = cfg.SOLVER.CHECKPOINT_PERIOD
-    logger.info("Start training")
-
-    # Run pre-training validation if enabled
-    if cfg.SOLVER.PRE_VAL:
-        logger.info("Validating before training")
-        run_eval(cfg, model, model_ema, logger, val_data_loader, device)
-
-    # Initialize training metrics
-    metric_logger = MetricLogger(delimiter="  ")
-    max_iter = len(train_data_loader)
-    start_iter = arguments["iteration"]
-    start_training_time = time.time()
-    end = time.time()
-
-    # Setup progress bar
-    if is_main_process():
-        import shutil
-        term_width = shutil.get_terminal_size().columns
-        pbar = tqdm(total=max_iter, initial=start_iter, desc="Training",
-                    ncols=term_width, dynamic_ncols=True,
-                    bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]{postfix}')
-    else:
-        pbar = None
-
-    # Training loop
-    for iteration, batch_dict in enumerate(train_data_loader, start_iter):
-        model.train()
-        criteria.train()
-
-        data_time = time.time() - end
-        iteration = iteration + 1
-        arguments["iteration"] = iteration
-
-        # Move batch to device
-        videos = batch_dict['videos'].to(device)
-        texts = batch_dict['texts']
-        durations = batch_dict['durations']
-        targets = to_device(batch_dict["targets"], device)
-        targets[0]["durations"] = durations
-
-        # Forward pass
-        outputs = model(videos, texts, targets, iteration/max_iter)
-
-        # Compute loss
-        loss_dict = criteria(outputs, targets, durations)
-        losses = sum(loss_dict[k] * weight_dict[k] for k in \
-                            loss_dict.keys() if k in weight_dict)
-
-        # reduce losses over all GPUs for logging purposes
-        loss_dict_reduced = reduce_loss_dict(loss_dict)
-        loss_dict_reduced_unscaled = {f"{k}_unscaled" : v \
-                        for k, v in loss_dict_reduced.items()}
-        loss_dict_reduced_scaled = {
-            k : v * weight_dict[k] for k, v in loss_dict_reduced.items()\
-                 if k in weight_dict and k in verbose_loss
+        # Configure verbose loss keys
+        self.verbose_loss_keys = {
+            "loss_bbox",
+            "loss_giou",
+            "loss_sted",
+            "logits_f_m",
+            "logits_f_a",
+            "logits_r_a",
+            "logits_r_m",
         }
-        losses_reduced_scaled = sum(loss_dict_reduced_scaled.values())
-        loss_value = losses_reduced_scaled.item()
+        if self.cfg.SOLVER.USE_ATTN:
+            self.verbose_loss_keys.add("loss_guided_attn")
+        if self.cfg.MODEL.VSTG.USE_ACTION:
+            self.verbose_loss_keys.add("loss_actioness")
 
-        # filter unrelated loss
-        metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled)
+        # Dataset cache (main process only)
+        if is_main_process():
+            for split in ("train", "test"):
+                _ = build_dataset(self.cfg, split=split, transforms=None)
+        synchronize()
 
-        optimizer.zero_grad()
-        losses.backward()
-        if cfg.SOLVER.MAX_GRAD_NORM > 0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.SOLVER.MAX_GRAD_NORM)
-        optimizer.step()
+        # Data loaders
+        self.train_loader = make_data_loader(
+            self.cfg,
+            mode="train",
+            is_distributed=self.distributed,
+            start_iter=self.arguments["iteration"],
+        )
+        self.val_loader = make_data_loader(
+            self.cfg,
+            mode="test",
+            is_distributed=self.distributed,
+        )
 
-        adjust_learning_rate(cfg, optimizer, iteration, max_iter)
+        # TensorBoard
+        if self.cfg.TENSORBOARD_DIR and is_main_process():
+            mkdir(self.cfg.TENSORBOARD_DIR)
+            self.writer = SummaryWriter(self.cfg.TENSORBOARD_DIR)
 
-        if model_ema is not None:
-            update_ema(model, model_ema, cfg.MODEL.EMA_DECAY)
+    def _maybe_pre_validate(self):
+        if self.cfg.SOLVER.PRE_VAL:
+            self.logger.info("Validating before training")
+            self.validate()
 
-        batch_time = time.time() - end
-        end = time.time()
-        metric_logger.update(time=batch_time, data=data_time)
-
-        eta_seconds = metric_logger.time.global_avg * (max_iter - iteration)
-        eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
-
-        if writer is not None and is_main_process() and iteration % 50 == 0:
-            try:
-                for k in loss_dict_reduced_scaled:
-                    writer.add_scalar(f"{k}", metric_logger.meters[k].avg, iteration)
-            except Exception as e:
-                logger.warning(f"Failed to write to TensorBoard: {e}")
-
-        # Update progress bar
-        if pbar is not None:
-            pbar.update(1)
-            # Create right-aligned postfix string
-            postfix_str = f" loss={loss_value:.4f}, lr={optimizer.param_groups[0]['lr']:.6f}"
-            pbar.set_postfix_str(postfix_str)
-
-        if iteration % 50 == 0 or iteration == max_iter:
-            log_msg = metric_logger.delimiter.join(
-                [
-                    "eta: {eta}",
-                    "iter: {iter} / {max_iter}",
-                    "{meters}",
-                    "lr: {lr:.6f}",
-                    "lr_vis_encoder: {lr_vis:.6f}",
-                    "lr_text_encoder: {lr_text:.6f}",
-                    "lr_temp_decoder: {lr_temp:.6f}",
-                    "lr_class: {lr_clas:.6f}",
-                    "max mem: {memory:.0f}",
-                ]
-            ).format(
-                eta=eta_string,
-                iter=iteration,
-                max_iter = max_iter,
-                meters=str(metric_logger),
-                lr=optimizer.param_groups[0]["lr"],
-                lr_vis=optimizer.param_groups[1]["lr"],
-                lr_text=optimizer.param_groups[2]["lr"],
-                lr_temp=optimizer.param_groups[3]["lr"],
-                lr_clas=optimizer.param_groups[4]["lr"],
-                memory=torch.cuda.max_memory_allocated() / 1024.0 / 1024.0,
+    def _open_progress(self, total: int, initial: int):
+        if is_main_process():
+            import shutil
+            term_width = shutil.get_terminal_size().columns
+            self.pbar = tqdm(
+                total=total,
+                initial=initial,
+                desc="Training",
+                ncols=term_width,
+                dynamic_ncols=True,
+                bar_format=(
+                    "{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} "
+                    "[{elapsed}<{remaining}, {rate_fmt}]{postfix}"
+                ),
             )
 
-            if pbar is not None:
-                pbar.write(log_msg)
-            else:
-                logger.info(log_msg)
+    def _close_progress(self):
+        if self.pbar is not None:
+            self.pbar.close()
+            self.pbar = None
 
-        if iteration % checkpoint_period == 0:
-            checkpointer.save("model_{:06d}".format(iteration), **arguments)
-            
-        if iteration == max_iter:
-            checkpointer.save("model_final", **arguments)
+    def fit(self):
+        self.logger.info("Start training")
+        metric_logger = MetricLogger(delimiter="  ")
+        max_iter = len(self.train_loader)
+        start_iter = self.arguments["iteration"]
+        start_time = time.time()
+        last_time = time.time()
 
-        if cfg.SOLVER.TO_VAL and iteration % cfg.SOLVER.VAL_PERIOD == 0:
-            run_eval(cfg, model, model_ema, logger, val_data_loader, device)
+        self._maybe_pre_validate()
+        self._open_progress(total=max_iter, initial=start_iter)
 
-    # Close progress bar
-    if pbar is not None:
-        pbar.close()
+        for step, batch in enumerate(self.train_loader, start_iter):
+            self.model.train()
+            self.criteria.train()
 
-    total_training_time = time.time() - start_training_time
-    total_time_str = str(datetime.timedelta(seconds=total_training_time))
-    logger.info(
-        "Total training time: {} ({:.4f} s / it)".format(
-            total_time_str, total_training_time / (max_iter)
+            data_time = time.time() - last_time
+            step = step + 1
+            self.arguments["iteration"] = step
+
+            # Move batch to device
+            videos = batch["videos"].to(self.device)
+            texts = batch["texts"]
+            durations = batch["durations"]
+            targets = to_device(batch["targets"], self.device)
+            targets[0]["durations"] = durations
+
+            # Forward pass and loss computation
+            outputs = self.model(videos, texts, targets, step / max_iter)
+            loss_dict = self.criteria(outputs, targets, durations)
+            losses = sum(
+                loss_dict[k] * self.weight_dict[k]
+                for k in loss_dict.keys()
+                if k in self.weight_dict
+            )
+
+            # Reduce losses for logging
+            loss_reduced = reduce_loss_dict(loss_dict)
+            reduced_scaled = {
+                k: v * self.weight_dict[k]
+                for k, v in loss_reduced.items()
+                if k in self.weight_dict and k in self.verbose_loss_keys
+            }
+            total_scaled = sum(reduced_scaled.values())
+            loss_value = total_scaled.item()
+
+            metric_logger.update(loss=loss_value, **reduced_scaled)
+
+            # Backward pass and optimization
+            self.optimizer.zero_grad()
+            losses.backward()
+            if self.cfg.SOLVER.MAX_GRAD_NORM > 0:
+                torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), self.cfg.SOLVER.MAX_GRAD_NORM
+                )
+            self.optimizer.step()
+
+            # Scheduler and EMA
+            adjust_learning_rate(self.cfg, self.optimizer, step, max_iter)
+            if self.model_ema is not None:
+                update_ema(self.model, self.model_ema, self.cfg.MODEL.EMA_DECAY)
+
+            # Timing and metrics
+            batch_time = time.time() - last_time
+            last_time = time.time()
+            metric_logger.update(time=batch_time, data=data_time)
+
+            # ETA calculation
+            eta_seconds = metric_logger.time.global_avg * (max_iter - step)
+            eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
+
+            # TensorBoard logging
+            if self.writer is not None and is_main_process() and step % 50 == 0:
+                try:
+                    for k in reduced_scaled:
+                        self.writer.add_scalar(f"{k}", metric_logger.meters[k].avg, step)
+                except Exception as e:
+                    self.logger.warning(f"Failed to write to TensorBoard: {e}")
+
+            # Progress bar update
+            if self.pbar is not None:
+                self.pbar.update(1)
+                postfix = (
+                    f" loss={loss_value:.4f}, lr={self.optimizer.param_groups[0]['lr']:.6f}"
+                )
+                self.pbar.set_postfix_str(postfix)
+
+            # Periodic logging
+            if step % 50 == 0 or step == max_iter:
+                log_msg = metric_logger.delimiter.join(
+                    [
+                        "eta: {eta}",
+                        "iter: {iter} / {max_iter}",
+                        "{meters}",
+                        "lr: {lr:.6f}",
+                        "lr_vis_encoder: {lr_vis:.6f}",
+                        "lr_text_encoder: {lr_text:.6f}",
+                        "lr_temp_decoder: {lr_temp:.6f}",
+                        "lr_class: {lr_clas:.6f}",
+                        "max mem: {memory:.0f}",
+                    ]
+                ).format(
+                    eta=eta_string,
+                    iter=step,
+                    max_iter=max_iter,
+                    meters=str(metric_logger),
+                    lr=self.optimizer.param_groups[0]["lr"],
+                    lr_vis=self.optimizer.param_groups[1]["lr"],
+                    lr_text=self.optimizer.param_groups[2]["lr"],
+                    lr_temp=self.optimizer.param_groups[3]["lr"],
+                    lr_clas=self.optimizer.param_groups[4]["lr"],
+                    memory=torch.cuda.max_memory_allocated() / 1024.0 / 1024.0,
+                )
+                if self.pbar is not None:
+                    self.pbar.write(log_msg)
+                else:
+                    self.logger.info(log_msg)
+
+            # Save checkpoints
+            if step % self.cfg.SOLVER.CHECKPOINT_PERIOD == 0:
+                self.checkpointer.save(f"model_{step:06d}", **self.arguments)
+
+            if step == max_iter:
+                self.checkpointer.save("model_final", **self.arguments)
+
+            # Validation
+            if self.cfg.SOLVER.TO_VAL and step % self.cfg.SOLVER.VAL_PERIOD == 0:
+                self.validate()
+
+        # Finalization
+        self._close_progress()
+        total_time = time.time() - start_time
+        total_time_str = str(datetime.timedelta(seconds=total_time))
+        self.logger.info(
+            "Total training time: {} ({:.4f} s / it)".format(
+                total_time_str, total_time / max_iter
+            )
         )
-    )
-    if writer is not None:
-        try:
-            writer.close()
-        except Exception as e:
-            logger.warning(f"Failed to close TensorBoard writer: {e}")
+        if self.writer is not None:
+            try:
+                self.writer.close()
+            except Exception as e:
+                self.logger.warning(f"Failed to close TensorBoard writer: {e}")
 
-    return model, model_ema
+    def validate(self):
+        self.logger.info("Start validating")
+        eval_model = self.model_ema if self.model_ema is not None else self.model
+        evaluator = build_evaluator(self.cfg, self.logger, mode="test")
+        postprocessor = build_postprocessors()
+        torch.cuda.empty_cache()
+        do_eval(
+            self.cfg,
+            mode="test",
+            logger=self.logger,
+            model=eval_model,
+            postprocessor=postprocessor,
+            data_loader=self.val_loader,
+            evaluator=evaluator,
+            device=self.device,
+        )
+        synchronize()
 
-
-def run_eval(cfg, model, model_ema, logger, val_data_loader, device):
-    logger.info("Start validating")
-    test_model = model_ema if model_ema is not None else model
-    evaluator = build_evaluator(cfg, logger, mode='test')   # mode = ['val','test']
-    postprocessor = build_postprocessors()
-    torch.cuda.empty_cache()
-    do_eval(
-        cfg,
-        mode='test',
-        logger=logger,
-        model=test_model,
-        postprocessor=postprocessor,
-        data_loader=val_data_loader,
-        evaluator=evaluator,
-        device=device
-    )
-    synchronize()
-
-
-def run_test(cfg, model, model_ema, logger, distributed):
-    logger.info("Start Testing")
-    test_model = model_ema if model_ema is not None else model
-    torch.cuda.empty_cache()
-
-    evaluator = build_evaluator(cfg, logger, mode='test')   # mode = ['val','test']
-    postprocessor = build_postprocessors()
-    val_data_loader = make_data_loader(cfg, mode='test', is_distributed=distributed)
-    do_eval(
-        cfg,
-        mode='test',
-        logger=logger,
-        model=test_model,
-        postprocessor=postprocessor,
-        data_loader=val_data_loader,
-        evaluator=evaluator,
-        device=torch.device(cfg.MODEL.DEVICE)
-    )
-    synchronize()
+    def test(self):
+        self.logger.info("Start Testing")
+        eval_model = self.model_ema if self.model_ema is not None else self.model
+        torch.cuda.empty_cache()
+        evaluator = build_evaluator(self.cfg, self.logger, mode="test")
+        postprocessor = build_postprocessors()
+        test_loader = make_data_loader(
+            self.cfg, mode="test", is_distributed=self.distributed
+        )
+        do_eval(
+            self.cfg,
+            mode="test",
+            logger=self.logger,
+            model=eval_model,
+            postprocessor=postprocessor,
+            data_loader=test_loader,
+            evaluator=evaluator,
+            device=torch.device(self.cfg.MODEL.DEVICE),
+        )
+        synchronize()
 
 
-def main():
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Spatio-Temporal Grounding Training")
     parser.add_argument(
         "--config-file",
@@ -316,8 +362,8 @@ def main():
     parser.add_argument(
         "--use-seed",
         dest="use_seed",
-        help="If use the random seed",
-        default=True
+        help="use deterministic seed",
+        default=True,
     )
     parser.add_argument(
         "opts",
@@ -325,21 +371,26 @@ def main():
         default=None,
         nargs=argparse.REMAINDER,
     )
+    return parser.parse_args()
 
-    args = parser.parse_args()
-    num_gpus = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
-    args.distributed = num_gpus > 1
 
-    if args.distributed:
-        torch.cuda.set_device(args.local_rank)
-        torch.distributed.init_process_group(
-            backend="nccl", init_method="env://"
-        )
+def _init_distributed(local_rank: int) -> bool:
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    is_dist = world_size > 1
+    if is_dist:
+        torch.cuda.set_device(local_rank)
+        torch.distributed.init_process_group(backend="nccl", init_method="env://")
         synchronize()
+    return is_dist
+
+
+def main():
+    args = _parse_args()
+    num_gpus = int(os.environ.get("WORLD_SIZE", "1"))
+    args.distributed = _init_distributed(args.local_rank)
 
     if args.config_file:
         cfg.merge_from_file(args.config_file)
-        
     cfg.merge_from_list(args.opts)
     cfg.freeze()
 
@@ -347,32 +398,29 @@ def main():
         cudnn.benchmark = False
         cudnn.deterministic = True
         set_seed(args.seed + get_rank())
-    
+
     synchronize()
-    
-    output_dir = cfg.OUTPUT_DIR
-    if output_dir:
-        mkdir(output_dir)
 
-    logger = setup_logger("Video Grounding", output_dir, get_rank())
-    logger.info("Using {} GPUs".format(num_gpus))
+    if cfg.OUTPUT_DIR:
+        mkdir(cfg.OUTPUT_DIR)
+
+    logger = setup_logger("Video Grounding", cfg.OUTPUT_DIR, get_rank())
+    logger.info(f"Using {num_gpus} GPUs")
     logger.info(args)
-    
     if args.config_file:
-        logger.info("Loaded configuration file {}".format(args.config_file))
-    
-    logger.info("Running with config:\n{}".format(cfg))
+        logger.info(f"Loaded configuration file {args.config_file}")
+    logger.info(f"Running with config:\n{cfg}")
 
-    output_config_path = os.path.join(cfg.OUTPUT_DIR, 'config.yml')
-    logger.info("Saving config into: {}".format(output_config_path))
-    # save overloaded model config in the output directory
-    save_config(cfg, output_config_path)
+    output_config = os.path.join(cfg.OUTPUT_DIR, "config.yml")
+    logger.info(f"Saving config into: {output_config}")
+    save_config(cfg, output_config)
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-    model, model_ema = train(cfg, args.local_rank, args.distributed, logger)
-    
+    trainer = Trainer(cfg, args.local_rank, args.distributed, logger)
+    trainer.setup()
+    trainer.fit()
     if not args.skip_test:
-        run_test(cfg, model, model_ema, logger, args.distributed)
+        trainer.test()
 
 
 if __name__ == "__main__":

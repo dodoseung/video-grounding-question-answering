@@ -6,106 +6,101 @@ import copy
 
 import torch
 import torch.utils.data
-from vgqa.utils.comm import get_world_size
+from typing import Any, Iterable, List
+from vgqa.utils.distributed import get_world_size
 
 from torch.utils.data import DistributedSampler
 
 from . import samplers
 from . import transforms as T
-from .video_dataset import VidSTGDataset
-from .collate_batch import collate_fn
+from .vidstg_dataset import VidSTGDataset
+from .video_batch_collator import collate_fn
 
 
-def build_transforms(cfg, is_train=True):
-    """Build image transformation pipeline for training or evaluation"""
-    imsize = cfg.INPUT.RESOLUTION
-    max_size = 720
+def build_transforms(cfg: Any, is_train: bool = True):
+    """Build image transformation pipeline for training or evaluation."""
+    target_short_side = cfg.INPUT.RESOLUTION
+    max_long_side = 720
+
     if is_train:
-        flip_horizontal_prob = cfg.INPUT.FLIP_PROB_TRAIN
-            
-        scales = []
+        flip_prob = cfg.INPUT.FLIP_PROB_TRAIN
+
         if cfg.INPUT.AUG_SCALE:
-            for i in range(4):
-                scales.append(imsize - 32 * i)
+            resize_candidates: List[int] = [target_short_side - 32 * i for i in range(4)]
         else:
-            scales = [imsize]
-            
+            resize_candidates = [target_short_side]
+
         transform = T.Compose(
             [
-                T.RandomHorizontalFlip(flip_horizontal_prob),
+                T.RandomHorizontalFlip(flip_prob),
                 T.RandomSelect(
-                    T.RandomResize(scales, max_size=max_size),
+                    T.RandomResize(resize_candidates, max_size=max_long_side),
                     T.Compose(
                         [
                             T.RandomResize([400, 500, 600]),
                             T.RandomSizeCrop(384, 600),
-                            T.RandomResize(scales, max_size=max_size),
+                            T.RandomResize(resize_candidates, max_size=max_long_side),
                         ]
                     ),
                 ),
-                T.Normalize(
-                    mean=cfg.INPUT.PIXEL_MEAN,
-                    std=cfg.INPUT.PIXEL_STD
-                ),
+                T.Normalize(mean=cfg.INPUT.PIXEL_MEAN, std=cfg.INPUT.PIXEL_STD),
             ]
         )
+        return transform
 
-    else:
-        transform = T.Compose(
-            [
-                T.RandomResize(imsize, max_size=max_size),
-                T.Normalize(
-                    mean=cfg.INPUT.PIXEL_MEAN,
-                    std=cfg.INPUT.PIXEL_STD
-                ),
-            ]
-        )
-
+    transform = T.Compose(
+        [
+            T.RandomResize(target_short_side, max_size=max_long_side),
+            T.Normalize(mean=cfg.INPUT.PIXEL_MEAN, std=cfg.INPUT.PIXEL_STD),
+        ]
+    )
     return transform
 
 
-def build_dataset(cfg, split, transforms):
-    """Build VidSTG dataset for given split"""
+def build_dataset(cfg: Any, split: str, transforms):
+    """Build VidSTG dataset for given split."""
     return VidSTGDataset(cfg, split, transforms)
 
 
-def make_data_sampler(dataset, shuffle, distributed):
-    """Create data sampler for distributed or single-process training"""
+def make_data_sampler(dataset, shuffle: bool, distributed: bool):
+    """Create data sampler for distributed or single-process training."""
     if distributed:
         return DistributedSampler(dataset, shuffle=shuffle)
     if shuffle:
-        sampler = torch.utils.data.sampler.RandomSampler(dataset)
-    else:
-        sampler = torch.utils.data.sampler.SequentialSampler(dataset)
-    return sampler
+        return torch.utils.data.sampler.RandomSampler(dataset)
+    return torch.utils.data.sampler.SequentialSampler(dataset)
 
 
-def _quantize(x, bins):
-    bins = copy.copy(bins)
-    bins = sorted(bins)
-    quantized = list(map(lambda y: bisect.bisect_right(bins, y), x))
-    return quantized
+def _quantize(values: Iterable[float], bins: Iterable[float]):
+    buckets = copy.copy(list(bins))
+    buckets = sorted(buckets)
+    return [bisect.bisect_right(buckets, val) for val in values]
 
 
-def _compute_aspect_ratios(dataset):
-    aspect_ratios = []
+def _compute_aspect_ratios(dataset) -> List[float]:
+    ratios: List[float] = []
     for i in range(len(dataset)):
-        video_info = dataset.get_video_info(i)
-        aspect_ratio = float(video_info["height"]) / float(video_info["width"])
-        aspect_ratios.append(aspect_ratio)
-    return aspect_ratios
+        info = dataset.get_video_info(i)
+        ratios.append(float(info["height"]) / float(info["width"]))
+    return ratios
 
 
 def _count_frame_size(dataset):
-    img_sizes = dict()
+    sizes = {}
     for i in range(len(dataset)):
-        video_info = dataset.get_video_info(i)
-        img_sizes.setdefault((video_info['width'],video_info['height']),0)
-        img_sizes[(video_info['width'],video_info['height'])] += 1
+        info = dataset.get_video_info(i)
+        key = (info["width"], info["height"])
+        sizes[key] = sizes.get(key, 0) + 1
 
 
 def make_batch_data_sampler(
-    dataset, sampler, aspect_grouping, batch_size, num_iters=None, start_iter=0, is_train=True
+    dataset,
+    sampler,
+    aspect_grouping,
+    batch_size,
+    num_iters=None,
+    start_iter: int = 0,
+    is_train: bool = True,
 ):
     if aspect_grouping:
         if not isinstance(aspect_grouping, (list, tuple)):
@@ -119,6 +114,7 @@ def make_batch_data_sampler(
         batch_sampler = torch.utils.data.sampler.BatchSampler(
             sampler, batch_size, drop_last=True if is_train else False
         )
+
     if num_iters is not None:
         batch_sampler = samplers.IterationBasedBatchSampler(
             batch_sampler, num_iters, start_iter
@@ -126,33 +122,40 @@ def make_batch_data_sampler(
     return batch_sampler
 
 
-def make_data_loader(cfg, mode='train', is_distributed=False, start_iter=0):
-    assert mode in {'train', 'val', 'test'}
+def make_data_loader(cfg: Any, mode: str = "train", is_distributed: bool = False, start_iter: int = 0):
+    assert mode in {"train", "val", "test"}
     num_gpus = get_world_size()
-    is_train = mode == 'train'
+    is_train = mode == "train"
 
     transforms = build_transforms(cfg, is_train)
     dataset = build_dataset(cfg, mode, transforms)
-    
+
+    if cfg.SOLVER.BATCH_SIZE != 1:
+        # The pipeline assumes one video per device per step
+        raise AssertionError("Each GPU should only take 1 video.")
+
+    videos_per_device = cfg.SOLVER.BATCH_SIZE
+    shuffle = is_train
+
     if is_train:
-        videos_per_batch = cfg.SOLVER.BATCH_SIZE * num_gpus
-        assert cfg.SOLVER.BATCH_SIZE == 1, "Each GPU should only take 1 video."
-        videos_per_gpu = cfg.SOLVER.BATCH_SIZE
-        shuffle = True
-        num_epochs = cfg.SOLVER.MAX_EPOCH 
-        num_iters = num_epochs * math.ceil(len(dataset) / videos_per_batch)
+        global_batch_size = videos_per_device * num_gpus
+        num_epochs = cfg.SOLVER.MAX_EPOCH
+        total_iters = num_epochs * math.ceil(len(dataset) / global_batch_size)
     else:
-        assert cfg.SOLVER.BATCH_SIZE == 1, "Each GPU should only take 1 video."
-        videos_per_gpu = cfg.SOLVER.BATCH_SIZE
-        shuffle = False
-        num_iters = None
+        total_iters = None
         start_iter = 0
 
     aspect_grouping = [1] if cfg.DATALOADER.ASPECT_RATIO_GROUPING else []
 
     sampler = make_data_sampler(dataset, shuffle, is_distributed)
     batch_sampler = make_batch_data_sampler(
-        dataset, sampler, aspect_grouping, videos_per_gpu, num_iters, start_iter, is_train=is_train
+        dataset,
+        sampler,
+        aspect_grouping,
+        videos_per_device,
+        total_iters,
+        start_iter,
+        is_train=is_train,
     )
     num_workers = cfg.DATALOADER.NUM_WORKERS
 

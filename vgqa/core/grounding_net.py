@@ -1,36 +1,31 @@
+import json
+from typing import Any, Dict, List, Tuple
+
 import torch
 from torch import nn
-from .net_utils import MLP
+
+from .model_utils import MLP
 from .vision import build_vis_encoder
 from .language import build_text_encoder
 from .decoder import build_encoder, build_decoder, build_TemporalSampling, build_SpatialActivation
-from vgqa.utils.misc import NestedTensor
-from .vidswin.video_swin_transformer import vidswin_model
-import json
+from vgqa.utils.training_utils import NestedTensor
+from .vision.video_swin_transformer import vidswin_model
 
-def precision_recall(predicted_labels, true_labels):
-    """Calculate precision and recall for label predictions"""
+def precision_recall(predicted_labels: List[int], true_labels: List[int]):
+    """Calculate precision and recall for label predictions."""
     try:
         predicted_set = set(predicted_labels)
         true_set = set(true_labels)
-
         intersection_size = len(predicted_set.intersection(true_set))
-    
-        if len(predicted_set) == 0:
-            precision = 0
-        else:
-            precision = intersection_size / len(predicted_set)
-        if len(true_set) == 0:
-            recall = 0
-        else:
-            recall = intersection_size / len(true_set)
+        precision = 0 if len(predicted_set) == 0 else intersection_size / len(predicted_set)
+        recall = 0 if len(true_set) == 0 else intersection_size / len(true_set)
     except Exception as e:
         print(e)
         precision, recall = 0, 0
     return precision, recall
 
-def load_json(file_path):
-    """Load JSON file with error handling for inference mode"""
+def load_json(file_path: str):
+    """Load JSON file with error handling for inference mode."""
     try:
         with open(file_path, "r") as f:
             return json.load(f)
@@ -39,7 +34,7 @@ def load_json(file_path):
         return {}
 
 class VSTGNet(nn.Module):
-    """Video Spatio-Temporal Grounding Network"""
+    """Video Spatio-Temporal Grounding Network."""
 
     def __init__(self, cfg):
         super(VSTGNet, self).__init__()
@@ -47,7 +42,7 @@ class VSTGNet(nn.Module):
         self.max_video_len = cfg.INPUT.MAX_VIDEO_LEN
         self.use_attn = cfg.SOLVER.USE_ATTN
 
-        self.use_aux_loss = cfg.SOLVER.USE_AUX_LOSS  # use the output of each transformer layer
+        self.use_aux_loss = cfg.SOLVER.USE_AUX_LOSS
         self.use_actioness = cfg.MODEL.VSTG.USE_ACTION
         self.query_dim = cfg.MODEL.VSTG.QUERY_DIM
 
@@ -90,14 +85,15 @@ class VSTGNet(nn.Module):
         self.verb_label2 = load_json(cfg.DATA_DIR + "/annos/test.json")
         self.theta = 0.45
 
-    def forward(self, videos, texts, targets, iteration_rate=-1):
+    def forward(self, videos, texts, targets, iteration_rate: int = -1):
         """
         Arguments:
-            videos  (NestedTensor): N * C * H * W, N = sum(T) 
-            durations : batch video length
-            texts   (NestedTensor]):
+            videos  (NestedTensor): N * C * H * W, N = sum(T)
+            durations: batch video length (carried inside videos.mask/durations)
+            texts (List[str]): raw text
             targets (list[TargetTensor]): ground-truth
-        Returns: 
+        Returns:
+            Dict of predictions
         """
         # Extract Visual Feature
         vis_outputs, vis_pos_embed = self.vis_encoder(videos)
@@ -126,38 +122,50 @@ class VSTGNet(nn.Module):
         logits_f_m = self.t_temporal_clas(f_vid_features, f_text_cls)
         logits_f_a = self.s_temporal_clas(f_vis_features, f_text_cls)
         # Frame Sampling
-        att_sequences = (logits_f_m.sigmoid()  + logits_f_a.sigmoid()) / 2
+        att_sequences = (logits_f_m.sigmoid() + logits_f_a.sigmoid()) / 2
         choose_index = torch.nonzero(att_sequences > self.theta).squeeze().tolist()
         choose_index = [choose_index] if isinstance(choose_index, int) else choose_index
-        choose_index = choose_index or torch.nonzero(att_sequences > 0).squeeze().tolist()   
+        choose_index = choose_index or torch.nonzero(att_sequences > 0).squeeze().tolist()
 
         # Attribute-aware Spatial Activation
-        logits_r_m, att_map_t = self.t_spatial_clas(f_vid_features[choose_index], f_text_cls[:,:1])
-        logits_r_a, att_map_s = self.s_spatial_clas(f_vis_features[choose_index], f_text_cls[:,:1])
+        logits_r_m, att_map_t = self.t_spatial_clas(f_vid_features[choose_index], f_text_cls[:, :1])
+        logits_r_a, att_map_s = self.s_spatial_clas(f_vis_features[choose_index], f_text_cls[:, :1])
 
         # Generating Object Queries
         init_tempral_query = (encoded_info['encoded_feature'][-l:].permute(1, 0, 2)[choose_index] * att_map_t.unsqueeze(2)).mean((0, 1))
         init_spatial_query = (encoded_info['encoded_feature'][:l].permute(1, 0, 2)[choose_index] * att_map_s.unsqueeze(2)).mean((0, 1))
 
         # Query-based Decoding
-        outputs_pos, outputs_time = self.ground_decoder(encoded_info=encoded_info, vis_pos=vis_pos_embed, isq=init_spatial_query, itq=init_tempral_query)
+        outputs_pos, outputs_time = self.ground_decoder(
+            encoded_info=encoded_info, vis_pos=vis_pos_embed, isq=init_spatial_query, itq=init_tempral_query
+        )
 
         if iteration_rate < 0:
-            choose_index = torch.nonzero((self.action_embed(outputs_time)[-1].squeeze().sigmoid()>0.5).int()).squeeze().tolist()
+            choose_index = (
+                torch.nonzero((self.action_embed(outputs_time)[-1].squeeze().sigmoid() > 0.5).int())
+                .squeeze()
+                .tolist()
+            )
             choose_index = [choose_index] if isinstance(choose_index, int) else choose_index
-            choose_index = choose_index or torch.nonzero(att_sequences > 0).squeeze().tolist()  
+            choose_index = choose_index or torch.nonzero(att_sequences > 0).squeeze().tolist()
 
-            logits_r_a, att_map_s = self.s_spatial_clas(f_vis_features[choose_index], f_text_cls[:,:1])
-            logits_r_m, att_map_t = self.t_spatial_clas(f_vid_features[choose_index], f_text_cls[:,:1])
-           
-            init_tempral_query = (encoded_info['encoded_feature'][-l:].permute(1, 0, 2)[choose_index] * att_map_t.unsqueeze(2)).mean((0, 1))
-            init_spatial_query = (encoded_info['encoded_feature'][:l].permute(1, 0, 2)[choose_index] * att_map_s.unsqueeze(2)).mean((0, 1))
-            outputs_pos, outputs_time = self.ground_decoder(encoded_info=encoded_info, vis_pos=vis_pos_embed, isq=init_spatial_query, itq=init_tempral_query)
+            logits_r_a, att_map_s = self.s_spatial_clas(f_vis_features[choose_index], f_text_cls[:, :1])
+            logits_r_m, att_map_t = self.t_spatial_clas(f_vid_features[choose_index], f_text_cls[:, :1])
+
+            init_tempral_query = (
+                encoded_info['encoded_feature'][-l:].permute(1, 0, 2)[choose_index] * att_map_t.unsqueeze(2)
+            ).mean((0, 1))
+            init_spatial_query = (
+                encoded_info['encoded_feature'][:l].permute(1, 0, 2)[choose_index] * att_map_s.unsqueeze(2)
+            ).mean((0, 1))
+            outputs_pos, outputs_time = self.ground_decoder(
+                encoded_info=encoded_info, vis_pos=vis_pos_embed, isq=init_spatial_query, itq=init_tempral_query
+            )
 
         out = {}
         
         # Predict the bounding box
-        outputs_coord = outputs_pos.flatten(1, 2) 
+        outputs_coord = outputs_pos.flatten(1, 2)
         out.update({"pred_boxes": outputs_coord[-1]})
         # Predict the temporal relevance scores
         out.update({"logits_f_m": logits_f_m})
@@ -166,24 +174,28 @@ class VSTGNet(nn.Module):
         out.update({"logits_r_a": logits_r_a})
         out.update({"logits_r_m": logits_r_m})
         # Predict the start and end probability 
-        time_hiden_state = outputs_time  
-        outputs_time = self.temp_embed(time_hiden_state)  
-        outputs_actioness = self.action_embed(time_hiden_state) 
+        time_hiden_state = outputs_time
+        outputs_time = self.temp_embed(time_hiden_state)
+        outputs_actioness = self.action_embed(time_hiden_state)
         out.update({"pred_sted": outputs_time[-1]})
         out.update({"pred_actioness": outputs_actioness[-1]})
         
         if self.use_aux_loss:
             out["aux_outputs"] = [
-                {
-                    "pred_sted": a,
-                    "pred_boxes": b,
-                    "pred_actioness": c
-                }
+                {"pred_sted": a, "pred_boxes": b, "pred_actioness": c}
                 for a, b, c in zip(outputs_time[:-1], outputs_coord[:-1], outputs_actioness[:-1])
             ]
 
-        out['verb_labels'] = self.verb_label.get(info_key, {}).get('verb_index_list', []) if self.training else self.verb_label2.get(info_key, {}).get('verb_index_list', [])
-        out['attr_labels'] = self.verb_label.get(info_key, {}).get('adj_index_list', []) if self.training else self.verb_label2.get(info_key, {}).get('adj_index_list', [])
+        out['verb_labels'] = (
+            self.verb_label.get(info_key, {}).get('verb_index_list', [])
+            if self.training
+            else self.verb_label2.get(info_key, {}).get('verb_index_list', [])
+        )
+        out['attr_labels'] = (
+            self.verb_label.get(info_key, {}).get('adj_index_list', [])
+            if self.training
+            else self.verb_label2.get(info_key, {}).get('adj_index_list', [])
+        )
         out['att_sequences'] = att_sequences.unsqueeze(0)
         gt_index = torch.nonzero(targets[0]['actioness']).squeeze().tolist()
         gt_index = [gt_index] if isinstance(gt_index, int) else gt_index

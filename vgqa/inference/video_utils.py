@@ -75,5 +75,5 @@ def get_frame_indices_with_bound(
         int(start_idx + (seg_size / 2) + np.round(seg_size * idx))
         for idx in range(num_segments)
     ])
-
     return frame_indices
+
